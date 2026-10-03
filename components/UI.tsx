@@ -221,7 +221,7 @@ export default function UI({ ready, progress, error, onRetry }: { ready: boolean
               <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowHelp(true)}>How to Play</button>
               <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => { const v = !s.sound; s.set({ sound: v }); if (eng) eng.audio.setEnabled(v); }}>Sound {s.sound ? "ON" : "OFF"}</button>
             </div>
-            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · S/↓ brake · A D steer · SPACE boost · H horn · ESC pause</p>
+            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · hold S/↓ through the stop to reverse · A/D steer · SPACE boost · H horn · ESC pause</p>
           </div>
         </div>
       )}
@@ -307,7 +307,7 @@ export default function UI({ ready, progress, error, onRetry }: { ready: boolean
             ◀ STEER ▶
           </div>
           <div className="touch-actions">
-            <button type="button" className="touch-btn" aria-label="Brake" {...hold("down")}>BRAKE</button>
+            <button type="button" className="touch-btn" aria-label="Brake; keep holding through the stop to reverse" {...hold("down")}>BRAKE / REV</button>
             <button type="button" className="touch-btn" aria-label="Gas" {...hold("up")}>GAS</button>
             <button type="button" className="touch-btn" aria-label="Boost" {...hold("boost")}>BOOST</button>
           </div>
