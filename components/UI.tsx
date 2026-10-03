@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useGame, saveBoard } from "@/game/store";
+import { useGame } from "@/game/store";
 import { engineRef } from "./GameClient";
 
 function fmtTime(s: number) {
@@ -9,11 +9,61 @@ function fmtTime(s: number) {
 }
 function fmtKm(distUnits: number) { return `${Math.round(distUnits * 8)}m`; }
 
-export default function UI({ ready, progress }: { ready: boolean; progress: number }) {
+export default function UI({ ready, progress, error, onRetry }: { ready: boolean; progress: number; error: string | null; onRetry: () => void }) {
   const s = useGame();
   const [showBoard, setShowBoard] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const mapRef = useRef<HTMLCanvasElement>(null);
+  const modalOpen = showBoard || showHelp || s.paused || s.phase === "gameover";
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const getDialog = () => {
+      const dialogs = document.querySelectorAll<HTMLElement>("[data-game-dialog]");
+      return dialogs[dialogs.length - 1] ?? null;
+    };
+    const dialog = getDialog();
+    const getFocusable = () => getDialog()?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])") ?? [];
+    const focusable = getFocusable();
+    (focusable[0] ?? dialog)?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (showBoard || showHelp) { setShowBoard(false); setShowHelp(false); }
+        else if (s.paused) engineRef.current?.resumeGame();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = getFocusable();
+      if (items.length === 0) { event.preventDefault(); dialog?.focus(); return; }
+      const first = items[0], last = items[items.length - 1];
+      if (!getDialog()?.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [modalOpen, showBoard, showHelp, s.paused, s.phase]);
+
+  const phaseAnnouncement = s.phase === "countdown" ? `Shift starts in ${s.countdown}`
+    : s.phase === "offer" ? `New order from ${s.order?.vendor ?? "a vendor"}. Accept the order to begin.`
+    : s.phase === "toPickup" ? `Ride to ${s.order?.vendor ?? "the vendor"} for pickup.`
+    : s.phase === "pickup" ? "Picking up the order."
+    : s.phase === "toDropoff" ? `Order picked up. Navigate to ${s.order?.customer ?? "the customer"} at ${s.order?.dropoff ?? "the drop-off"}.`
+    : s.phase === "deliver" ? "Handing over the order."
+    : s.phase === "delivered" ? "Delivery complete."
+    : s.phase === "gameover" ? "Shift complete."
+    : "";
+  const deadlineWarning = s.timeLeft > 0 && s.timeLeft <= 15 && (s.phase === "toPickup" || s.phase === "toDropoff")
+    ? "Warning: less than 15 seconds remain."
+    : "";
+  const liveStatus = [s.banner, s.toasts[s.toasts.length - 1]?.text, deadlineWarning, phaseAnnouncement].filter(Boolean).join(". ");
 
   // minimap painter — throttled to ~15fps to save battery
   useEffect(() => {
@@ -96,8 +146,10 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       eng.input.right = dx > 0.25;
     };
     const down = (e: PointerEvent) => {
+      e.preventDefault();
       joyActive.current = e.pointerId;
       joyRect.current = el.getBoundingClientRect();
+      el.setPointerCapture?.(e.pointerId);
     };
     const up = (e: PointerEvent) => {
       if (joyActive.current !== e.pointerId) return;
@@ -118,20 +170,33 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
   }, [ready]);
 
   const hold = (key: "up" | "down" | "boost") => ({
-    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); const eng = engineRef.current; if (eng) { eng.audio.ensure(); eng.input[key] = true; } },
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); const eng = engineRef.current; if (eng) { eng.audio.ensure(); eng.input[key] = true; } },
     onPointerUp: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
     onPointerCancel: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
     onPointerLeave: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
+    onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); const eng = engineRef.current; if (eng) { eng.audio.ensure(); eng.input[key] = true; } } },
+    onKeyUp: (e: React.KeyboardEvent<HTMLButtonElement>) => { if (e.key === " " || e.key === "Enter") { const eng = engineRef.current; if (eng) eng.input[key] = false; } },
+    onBlur: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
   });
 
   if (!ready) {
     return (
       <div className="hud-layer" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c" }}>
-        <div className="card pop" style={{ padding: 36, width: 340, textAlign: "center" }}>
+        <div className="card pop" style={{ padding: 36, width: "min(420px, 92vw)", textAlign: "center" }}>
           <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 120, background: "#000", borderRadius: 14, padding: 8 }} />
-          <h2 style={{ margin: "14px 0 6px" }}>Preparing your Night Market shift…</h2>
-          <p style={{ opacity: 0.7, fontSize: 13 }}>Loading Accra · rider · traffic</p>
-          <div className="loading-bar"><div style={{ width: `${progress}%` }} /></div>
+          {error ? (
+            <>
+              <h2 style={{ margin: "14px 0 6px" }}>Couldn’t start the game</h2>
+              <p role="alert" style={{ opacity: 0.8, fontSize: 14, lineHeight: 1.5 }}>{error}</p>
+              <button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }} onClick={onRetry}>RETRY</button>
+            </>
+          ) : (
+            <>
+              <h2 style={{ margin: "14px 0 6px" }}>Preparing your Night Market shift…</h2>
+              <p style={{ opacity: 0.7, fontSize: 13 }}>Loading Accra · rider · traffic</p>
+              <div className="loading-bar"><div style={{ width: `${progress}%` }} /></div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -142,6 +207,7 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
 
   return (
     <div className="hud-layer">
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{liveStatus}</div>
       {s.phase === "menu" && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 46, background: "linear-gradient(transparent 40%, rgba(0,0,0,0.72))" }}>
           <div className="card pop" style={{ padding: "26px 30px", width: "min(480px, 92vw)", textAlign: "center", pointerEvents: "auto" }}>
@@ -162,8 +228,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
 
       {s.paused && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(360px, 90vw)", pointerEvents: "auto" }}>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>⏸ PAUSED</div>
+          <div data-game-dialog role="dialog" aria-modal="true" aria-labelledby="pause-dialog-title" tabIndex={-1} className="card pop" style={{ padding: 28, textAlign: "center", width: "min(360px, 90vw)", pointerEvents: "auto" }}>
+            <div id="pause-dialog-title" style={{ fontSize: 28, fontWeight: 900 }}>⏸ PAUSED</div>
             <p style={{ opacity: 0.7, fontSize: 13 }}>Take a breather, rider.</p>
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => eng?.resumeGame()}>RESUME ▶</button>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -225,16 +291,25 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
             <div className="loading-bar"><div style={{ width: `${Math.round(s.boost)}%` }} /></div>
             <div style={{ fontSize: 12, fontWeight: 800, marginTop: 6 }}>{s.speedKmh} km/h · {s.deliveries} deliveries · {s.score.toLocaleString()} pts</div>
           </div>
-          <canvas ref={mapRef} id="minimap" width={150} height={150} style={{ position: "absolute", left: 12, bottom: 12, width: 110, height: 110 }} />
+          <canvas
+            ref={mapRef}
+            id="minimap"
+            className="minimap"
+            width={150}
+            height={150}
+            role="img"
+            aria-label={s.order && (s.phase === "toPickup" || s.phase === "toDropoff")
+              ? `Minimap. Navigate to ${s.phase === "toPickup" ? s.order.vendor : `${s.order.customer} at ${s.order.dropoff}`}. About ${fmtKm(s.distM)} away.`
+              : "Minimap showing nearby roads and fuel stations."}
+          />
           {/* touch controls */}
-          <div ref={joyRef}
-            style={{ position: "absolute", left: 140, bottom: 12, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.3)", pointerEvents: "auto", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800 }}>
+          <div ref={joyRef} className="touch-joy" role="group" tabIndex={0} aria-label="Steering joystick. Use A or Left Arrow to steer left, and D or Right Arrow to steer right.">
             ◀ STEER ▶
           </div>
-          <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 8 }}>
-            <div className="touch-btn" {...hold("down")}>BRAKE</div>
-            <div className="touch-btn" {...hold("up")}>GAS</div>
-            <div className="touch-btn" {...hold("boost")}>BOOST</div>
+          <div className="touch-actions">
+            <button type="button" className="touch-btn" aria-label="Brake" {...hold("down")}>BRAKE</button>
+            <button type="button" className="touch-btn" aria-label="Gas" {...hold("up")}>GAS</button>
+            <button type="button" className="touch-btn" aria-label="Boost" {...hold("boost")}>BOOST</button>
           </div>
         </>
       )}
@@ -277,9 +352,9 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
 
       {s.phase === "gameover" && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(440px, 92vw)", pointerEvents: "auto" }}>
+          <div data-game-dialog role="dialog" aria-modal="true" aria-labelledby="gameover-dialog-title" tabIndex={-1} className="card pop" style={{ padding: 28, textAlign: "center", width: "min(440px, 92vw)", pointerEvents: "auto" }}>
             <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 90, background: "#000", borderRadius: 12, padding: 6 }} />
-            <h2 style={{ margin: "8px 0" }}>SHIFT COMPLETE</h2>
+            <h2 id="gameover-dialog-title" style={{ margin: "8px 0" }}>SHIFT COMPLETE</h2>
             <div style={{ lineHeight: 1.8, fontWeight: 700 }}>
               Deliveries: {s.deliveries}<br />
               Earnings: GHS {s.earnings.toFixed(2)}<br />
@@ -287,14 +362,16 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
               Score: {s.score.toLocaleString()}<br />
               Best Streak: 🔥 {s.bestStreak}
             </div>
+            <label htmlFor="nickname-input" className="sr-only">Nickname for the leaderboard</label>
             <input
+              id="nickname-input"
               value={s.nickname}
               onChange={(e) => { s.set({ nickname: e.target.value.slice(0, 14) }); try { localStorage.setItem("nm_name", e.target.value.slice(0, 14)); } catch {} }}
               placeholder="Your nickname"
               style={{ marginTop: 12, width: "100%", padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 800, textAlign: "center" }}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { saveBoard(s.nickname || "Rider", s.score); eng?.startRun(); }}>RIDE AGAIN</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => eng?.startRun()}>RIDE AGAIN</button>
               <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => {
                 const txt = `I earned GHS ${s.earnings.toFixed(2)} in Night Market Rider! Score ${s.score.toLocaleString()} 🛵`;
                 if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
@@ -308,17 +385,17 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
 
       {(showBoard || showHelp) && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>
-          <div className="card pop" style={{ padding: 24, width: "min(420px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
+          <div data-game-dialog role="dialog" aria-modal="true" aria-labelledby="info-dialog-title" tabIndex={-1} className="card pop" style={{ padding: 24, width: "min(420px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
             {showBoard ? (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>ACCRA TOP RIDERS</h3>
+                <h3 id="info-dialog-title" style={{ margin: "0 0 10px" }}>ACCRA TOP RIDERS</h3>
                 {s.leaderboard.length === 0 && <p style={{ opacity: 0.7 }}>No shifts yet — be the first!</p>}
                 {s.leaderboard.map((r, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800 }}><span>{i + 1}. {r.name}</span><span>{r.score.toLocaleString()}</span></div>)}
                 <div style={{ fontSize: 12, opacity: 0.6, marginTop: 8 }}>Local leaderboard · Supabase sync coming soon.</div>
               </>
             ) : (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>How to Play</h3>
+                <h3 id="info-dialog-title" style={{ margin: "0 0 10px" }}>How to Play</h3>
                 <div style={{ fontSize: 14, lineHeight: 1.7 }}>
                   1. <b>ACCEPT ORDER</b> → ride to the yellow vendor beam.<br />
                   2. <b>PICK UP</b> → then follow chevrons to the green drop beam.<br />

@@ -50,6 +50,15 @@ body {
 @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 .floaty { animation: floaty 2.2s ease-in-out infinite; }
 @keyframes pulse-ring { 0% { transform: scale(0.85); opacity: 0.9; } 100% { transform: scale(1.25); opacity: 0.15; } }
+.minimap { position: absolute; left: 12px; bottom: 12px; width: 110px; height: 110px; }
+.touch-joy {
+  position: absolute; left: 140px; bottom: 12px; width: 110px; height: 110px;
+  border-radius: 50%; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.3); pointer-events: auto;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; touch-action: none;
+}
+.touch-actions { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
 .touch-btn {
   pointer-events: auto;
   width: 68px; height: 68px; border-radius: 50%;
@@ -58,8 +67,25 @@ body {
   color: #fff; font-weight: 900; font-size: 13px;
   display: flex; align-items: center; justify-content: center;
   touch-action: none;
+  padding: 0; cursor: pointer;
 }
 .touch-btn.active { background: rgba(242,227,92,0.85); color: #111; }
 #minimap { border-radius: 50%; border: 2px solid rgba(242,227,92,0.6); background: rgba(0,0,0,0.55); }
 .loading-bar { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.14); overflow: hidden; }
 .loading-bar > div { height: 100%; background: var(--nm-yellow); width: 0%; transition: width 0.2s; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+button:focus-visible, input:focus-visible, [role="group"]:focus-visible { outline: 3px solid var(--nm-yellow); outline-offset: 3px; }
+@media (max-width: 480px) {
+  .minimap { width: 92px; height: 92px; }
+  .touch-joy { left: 12px; bottom: 124px; width: 98px; height: 98px; }
+  .touch-actions { gap: 6px; }
+  .touch-btn { width: min(18vw, 62px); height: min(18vw, 62px); font-size: clamp(10px, 3vw, 12px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { sanitizeLeaderboard, sanitizeNickname } from "./storage.mjs";
 
 export type Phase =
   | "loading"
@@ -71,7 +72,7 @@ if (typeof window !== "undefined") {
     const lb = JSON.parse(window.localStorage.getItem("nm_board") || "[]");
     if (nm || Array.isArray(lb)) {
       // applied after store creation below; see hydrate below
-      (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: unknown } }).__nm_hydrate = { nm, lb };
+      (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: unknown } }).__nm_hydrate = { nm: sanitizeNickname(nm), lb: sanitizeLeaderboard(lb) };
     }
   } catch { /* ignore */ }
 }
@@ -116,8 +117,10 @@ export function saveBoard(name: string, score: number) {
   if (typeof window === "undefined") return;
   try {
     const raw = window.localStorage.getItem("nm_board") || "[]";
-    const arr = JSON.parse(raw) as { name: string; score: number }[];
-    arr.push({ name, score });
+    const arr = sanitizeLeaderboard(JSON.parse(raw));
+    const safeName = sanitizeNickname(name) || "Rider";
+    const safeScore = Number.isFinite(score) ? Math.max(0, Math.floor(score)) : 0;
+    arr.push({ name: safeName, score: safeScore });
     arr.sort((a, b) => b.score - a.score);
     const top = arr.slice(0, 8);
     window.localStorage.setItem("nm_board", JSON.stringify(top));
@@ -177,7 +180,7 @@ export function makeOrder(index: number): Order {
 // Apply client hydration captured above (client only).
 if (typeof window !== "undefined") {
   try {
-    const h = (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: { name: string; score: number }[] } }).__nm_hydrate;
-    if (h) useGame.getState().set({ nickname: h.nm || "Rider", leaderboard: Array.isArray(h.lb) ? h.lb : [] });
+    const h = (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: unknown } }).__nm_hydrate;
+    if (h) useGame.getState().set({ nickname: sanitizeNickname(h.nm) || "Rider", leaderboard: sanitizeLeaderboard(h.lb) });
   } catch { /* ignore */ }
 }

@@ -77,10 +77,11 @@ export interface Coin {
 }
 
 export interface WorldCollider {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  rotationY: number;
   name: string;
 }
 
@@ -232,14 +233,8 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
 
   const colliders: WorldCollider[] = [];
 
-  function addCollider(cx: number, cz: number, hw: number, hd: number, name: string) {
-    colliders.push({
-      minX: cx - hw,
-      maxX: cx + hw,
-      minZ: cz - hd,
-      maxZ: cz + hd,
-      name,
-    });
+  function addCollider(cx: number, cz: number, hw: number, hd: number, name: string, rotationY = 0) {
+    colliders.push({ x: cx, z: cz, halfX: hw, halfZ: hd, rotationY, name });
   }
 
   // --- 1. LIGHTING SETUP (Warm Golden Accra Sunlight) ---
@@ -513,13 +508,13 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   legonHall1.position.set(-42, 0, -36);
   legonHall1.rotation.y = 0.2;
   group.add(legonHall1);
-  addCollider(-42, -36, 7.5, 4.5, "Legon Hall");
+  addCollider(-42, -36, 7.5, 4.5, "Legon Hall", legonHall1.rotation.y);
 
   const legonHall2 = createLegonHallMesh();
   legonHall2.position.set(-62, 0, -30);
   legonHall2.rotation.y = -0.15;
   group.add(legonHall2);
-  addCollider(-62, -30, 7.5, 4.5, "Legon Annex");
+  addCollider(-62, -30, 7.5, 4.5, "Legon Annex", legonHall2.rotation.y);
 
   // Legon Avenue Palms (Lined academic boulevard)
   for (let i = -6; i <= 6; i++) {
@@ -544,7 +539,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   upsaBlock2.position.set(56, 0, -32);
   upsaBlock2.rotation.y = -0.2;
   group.add(upsaBlock2);
-  addCollider(56, -32, 4.5, 4.0, "UPSA Shops");
+  addCollider(56, -32, 4.5, 4.0, "UPSA Shops", upsaBlock2.rotation.y);
 
   // MTN Mobile Money Kiosk near UPSA
   const momo1 = createMoMoKioskMesh();
@@ -568,20 +563,20 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   villa2.position.set(58, 0, 46);
   villa2.rotation.y = -0.3;
   group.add(villa2);
-  addCollider(58, 46, 7.5, 6.5, "East Legon Villa 2");
+  addCollider(58, 46, 7.5, 6.5, "East Legon Villa 2", villa2.rotation.y);
 
   const villa3 = createCompoundHouseMesh();
   villa3.position.set(34, 0, 58);
   villa3.rotation.y = 0.25;
   group.add(villa3);
-  addCollider(34, 58, 7.5, 6.5, "East Legon Villa 3");
+  addCollider(34, 58, 7.5, 6.5, "East Legon Villa 3", villa3.rotation.y);
 
   // East Legon Restaurant & Nightlife
   const restBlock = createCommercialShopMesh();
   restBlock.position.set(46, 0, 22);
   restBlock.rotation.y = Math.PI;
   group.add(restBlock);
-  addCollider(46, 22, 4.5, 4.0, "Papaye Restaurant");
+  addCollider(46, 22, 4.5, 4.0, "Papaye Restaurant", restBlock.rotation.y);
 
   const restSign = signMesh("PAPAYE FAST FOOD", 7, "#c92a2a", "#ffd43b");
   restSign.position.set(46, 5.2, 18);
@@ -594,7 +589,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
     stall.position.set(-36 - (i % 3) * 12, 0, 28 + Math.floor(i / 3) * 16);
     stall.rotation.y = (Math.random() - 0.5) * 0.3;
     group.add(stall);
-    addCollider(stall.position.x, stall.position.z, 2.0, 1.6, `Market Stall ${i + 1}`);
+    addCollider(stall.position.x, stall.position.z, 2.0, 1.6, `Market Stall ${i + 1}`, stall.rotation.y);
   }
 
   // Authentic Roadside Chop Bar ("Osikan Chop Bar")
@@ -602,7 +597,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   chopBar.position.set(-24, 0, 22);
   chopBar.rotation.y = Math.PI;
   group.add(chopBar);
-  addCollider(-24, 22, 2.5, 2.0, "Osikan Chop Bar");
+  addCollider(-24, 22, 2.5, 2.0, "Osikan Chop Bar", chopBar.rotation.y);
 
   const chopSign = signMesh("OSIKAN CHOP BAR · FUFU", 7, "#e8590c");
   chopSign.position.set(-24, 4.8, 18);
@@ -741,7 +736,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
     group.add(station);
     fuelStations.push({ x: fp.x, z: fp.z, mesh: station });
     // Narrow pump island collider only — allows rider to drive under canopy to refuel freely
-    addCollider(fp.x, fp.z, 1.2, 0.4, "Fuel Pump");
+    addCollider(fp.x, fp.z, 1.2, 0.4, "Fuel Pump", fp.ry);
   }
 
   // --- 14. GHANA NATIONAL FLAGS ---

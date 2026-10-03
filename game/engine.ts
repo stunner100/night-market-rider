@@ -5,6 +5,7 @@ import { makeOrder, saveBoard, useGame } from "./store";
 import { GameAudio } from "./audio";
 import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
+import { movePointOutsideOrientedBox, segmentOrientedBoxEntryT } from "./collision.mjs";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -59,12 +60,12 @@ export class Engine {
   camPos = new THREE.Vector3(0, 5, -28);
   private _bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private _fuelWarned = false;
+  private _boardSubmitted = false;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
     this.quality = this.isMobile ? "low" : "high";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.5 : 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // HDR tone mapping for photorealistic lighting
@@ -105,6 +106,7 @@ export class Engine {
   resize = () => {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.isMobile ? 1.5 : 2));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -186,13 +188,28 @@ export class Engine {
       phase: "countdown", countdown: 3, order: null, orderIndex: 0,
       earnings: 0, xp: 0, deliveries: 0, streak: 0, bestStreak: 0,
       rating: 5.0, ratingsCount: 0, score: 0, strikes: 0, timeLeft: 0,
-      lastDelivery: null, banner: null, fuel: 100, paused: false,
+      lastDelivery: null, banner: null, fuel: 100, boost: 100, paused: false,
+      speedKmh: 0, distM: 0, turnHint: "",
     });
     this.audio.setPaused(false);
     this._fuelWarned = false;
+    this._boardSubmitted = false;
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0;
-    this.nightF = 0; this.orderCollisions = 0;
+    this.nightF = 0; this.orderCollisions = 0; this.boostOn = false;
+    this.crashCool = 0; this.potCool = 0; this.nearCool = 0; this.coinCool = 0;
+    this.py = 0; this.vy = 0; this.bump = 0; this.shake = 0;
+    this.input = { up: false, down: false, left: false, right: false, boost: false };
     this.clearNPCs();
+    this.world.setMarkers(null, null, "countdown");
+    this.updateNav(null, "countdown");
+    if (this.targetLabel) {
+      const mat = this.targetLabel.material as THREE.SpriteMaterial;
+      if (mat.map) mat.map.dispose();
+      mat.dispose();
+      this.scene.remove(this.targetLabel);
+      this.targetLabel = null;
+    }
+    for (const coin of this.world.coins) { coin.taken = false; coin.mesh.visible = true; }
     this.countdownT = 3.2;
     this.audio.ensure();
     this.audio.blip(523, 0.3, "sawtooth", 0.25); // engine rev
@@ -200,6 +217,7 @@ export class Engine {
 
   offerNext() {
     const s = useGame.getState();
+    this.orderCollisions = 0;
     const order = makeOrder(s.orderIndex);
     s.set({ phase: "offer", order, timeLeft: order.timeTotal, banner: null });
     this.world.setMarkers({ x: order.pickupX, z: order.pickupZ }, null, "offer");
@@ -401,10 +419,14 @@ export class Engine {
 
   gameOver() {
     const s = useGame.getState();
+    if (s.phase === "gameover") return;
     s.set({ phase: "gameover" });
     this.audio.fail();
     this.world.setMarkers(null, null, "gameover");
-    saveBoard(s.nickname || "Rider", s.score);
+    if (!this._boardSubmitted) {
+      this._boardSubmitted = true;
+      saveBoard(s.nickname || "Rider", s.score);
+    }
   }
 
   spawnPuff(x: number, y: number, z: number, color: number, n = 6, spread = 2) {
@@ -495,10 +517,36 @@ export class Engine {
       const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
       this.heading += steer * 2.1 * steerAuthority * dt * (this.boostOn ? 0.8 : 1);
     }
+    const previousX = this.px, previousZ = this.pz;
     const nx = this.px + Math.sin(this.heading) * this.speed * dt;
     const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
-    this.px = THREE.MathUtils.clamp(nx, -98, 98);
-    this.pz = THREE.MathUtils.clamp(nz, -98, 98);
+    const nextX = THREE.MathUtils.clamp(nx, -98, 98);
+    const nextZ = THREE.MathUtils.clamp(nz, -98, 98);
+    this.px = nextX;
+    this.pz = nextZ;
+
+    // Sweep the full movement segment so fast updates cannot tunnel through
+    // thin or rotated obstacles. Stop just before the first surface hit.
+    if (riding) {
+      let hit: { collider: World["colliders"][number]; t: number } | null = null;
+      for (const collider of this.world.colliders) {
+        const t = segmentOrientedBoxEntryT(previousX, previousZ, nextX, nextZ, collider);
+        if (t !== null && (!hit || t < hit.t)) hit = { collider, t };
+      }
+      if (hit) {
+        const dx = nextX - previousX, dz = nextZ - previousZ;
+        const distance = Math.hypot(dx, dz);
+        if (hit.t === 0) {
+          const outside = movePointOutsideOrientedBox(previousX, previousZ, hit.collider);
+          this.px = outside.x; this.pz = outside.z;
+        } else {
+          const safeT = Math.max(0, hit.t - (distance > 0 ? 0.15 / distance : 0));
+          this.px = previousX + dx * safeT;
+          this.pz = previousZ + dz * safeT;
+        }
+        if (this.crashCool <= 0) this.crash(`💥 Collided with ${hit.collider.name}! Easy oo.`);
+      }
+    }
 
     // ramps & potholes
     this.crashCool = Math.max(0, this.crashCool - dt);
@@ -526,21 +574,6 @@ export class Engine {
       }
     }
 
-    // Solid world building collisions (stops phasing through walls!)
-    if (riding && this.crashCool <= 0 && this.world.colliders) {
-      for (const col of this.world.colliders) {
-        if (this.px >= col.minX && this.px <= col.maxX && this.pz >= col.minZ && this.pz <= col.maxZ) {
-          this.crash(`💥 Collided with ${col.name}! Easy oo.`);
-          const cx = (col.minX + col.maxX) / 2;
-          const cz = (col.minZ + col.maxZ) / 2;
-          const angle = Math.atan2(this.px - cx, this.pz - cz);
-          this.px += Math.sin(angle) * 1.6;
-          this.pz += Math.cos(angle) * 1.6;
-          break;
-        }
-      }
-    }
-
     // traffic collisions + near miss
     const activeTraffic = this.world.traffic.filter((_, i) => i < 8 + Math.round(orderDiff * 6));
     for (const c of this.world.traffic) c.mesh.visible = activeTraffic.includes(c);
@@ -558,6 +591,7 @@ export class Engine {
       }
       // peds & goats — physical crash response with ragdoll tumble
       for (const p of this.world.peds) {
+        if ((p.tumble ?? 0) > 0) continue;
         const pdx = this.px - p.mesh.position.x;
         const pdz = this.pz - p.mesh.position.z;
         const d = Math.sqrt(pdx * pdx + pdz * pdz);
@@ -651,7 +685,6 @@ export class Engine {
         this.rig.boxLid.position.y = 0.58 + Math.sin((1.8 - this.pickupT) * 6) * 0.08 + 0.15;
         if (this.pickupT <= 0) {
           this.rig.boxLid.position.y = 0.58;
-          this.orderCollisions = 0;
           // Allocate delivery time with prompt pickup bonus!
           const dropTime = Math.round(o.timeTotal * 0.65 + Math.max(5, s.timeLeft * 0.35));
           s.set({ phase: "toDropoff", timeLeft: dropTime });

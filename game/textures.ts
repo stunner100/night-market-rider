@@ -2,6 +2,25 @@ import * as THREE from "three";
 
 const cache = new Map<string, THREE.CanvasTexture>();
 
+function roundedRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  g.beginPath();
+  if (typeof g.roundRect === "function") {
+    g.roundRect(x, y, w, h, r);
+    return;
+  }
+  g.moveTo(x + r, y);
+  g.lineTo(x + w - r, y);
+  g.quadraticCurveTo(x + w, y, x + w, y + r);
+  g.lineTo(x + w, y + h - r);
+  g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  g.lineTo(x + r, y + h);
+  g.quadraticCurveTo(x, y + h, x, y + h - r);
+  g.lineTo(x, y + r);
+  g.quadraticCurveTo(x, y, x + r, y);
+  g.closePath();
+}
+
 export function textTexture(text: string, opts: { bg?: string; fg?: string; w?: number; h?: number; font?: number; border?: string } = {}) {
   const key = JSON.stringify([text, opts]);
   const hit = cache.get(key);
@@ -12,10 +31,9 @@ export function textTexture(text: string, opts: { bg?: string; fg?: string; w?: 
   const g = c.getContext("2d")!;
   g.fillStyle = opts.bg ?? "#111";
   const r = 24;
-  g.beginPath();
-  g.roundRect(2, 2, w - 4, h - 4, r);
+  roundedRectPath(g, 2, 2, w - 4, h - 4, r);
   g.fill();
-  if (opts.border) { g.strokeStyle = opts.border; g.lineWidth = 6; g.beginPath(); g.roundRect(6, 6, w - 12, h - 12, r - 4); g.stroke(); }
+  if (opts.border) { g.strokeStyle = opts.border; g.lineWidth = 6; roundedRectPath(g, 6, 6, w - 12, h - 12, r - 4); g.stroke(); }
   g.fillStyle = opts.fg ?? "#fff";
   g.font = `800 ${opts.font ?? 56}px system-ui, sans-serif`;
   g.textAlign = "center"; g.textBaseline = "middle";
