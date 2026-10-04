@@ -35,7 +35,6 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
       bevelEnabled: false,
       curveSegments: 1,
     });
-    // Shape is created in X/-Z, extrusion is +Z. Rotate extrusion into world +Y.
     geometry.rotateX(-Math.PI / 2);
     geometry.computeBoundingBox();
     geometry.computeVertexNormals();
@@ -49,7 +48,6 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
     mesh.userData.sharedMaterial = true;
     group.add(mesh);
 
-    // A lightweight roof cap adds contrast without windows/draw-heavy facade pieces.
     if (!mobile && height > 5.5 && building.footprint.length <= 12) {
       const box = new THREE.Box3().setFromBufferAttribute(geometry.getAttribute("position") as THREE.BufferAttribute);
       const sx = Math.max(0.5, box.max.x - box.min.x);
@@ -72,5 +70,5 @@ export function disposeBuildingGroup(group: THREE.Group): void {
     if (Array.isArray(obj.material)) obj.material.forEach(m => materials.add(m));
     else materials.add(obj.material);
   });
-  for (const material of materials) material.dispose();
+  Array.from(materials).forEach(material => material.dispose());
 }
