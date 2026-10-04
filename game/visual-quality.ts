@@ -5,9 +5,8 @@ import type { Engine } from "./engine";
 /**
  * Browser-friendly visual polish layer.
  *
- * This intentionally stays outside the gameplay loop: it improves color,
- * reflections, texture sampling, shadow precision and grounding without
- * changing movement, order logic, collisions or the public Engine API.
+ * Improves color, reflections, texture sampling, shadow precision and object
+ * grounding without changing gameplay, collisions or the public Engine API.
  */
 export function applyVisualQuality(engine: Engine) {
   const { renderer, scene, world, rig } = engine;
@@ -15,12 +14,12 @@ export function applyVisualQuality(engine: Engine) {
 
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = mobile ? 1.05 : 1.10;
+  renderer.toneMappingExposure = mobile ? 1.04 : 1.08;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // A tiny neutral environment gives clearcoat, helmets, glass and painted
-  // vehicles believable highlights without shipping a large HDR file.
+  // Neutral PMREM reflections make clearcoat, glass, helmets and painted cars
+  // react to light without shipping a large HDR environment.
   const pmrem = new THREE.PMREMGenerator(renderer);
   pmrem.compileEquirectangularShader();
   const room = new RoomEnvironment();
@@ -35,24 +34,22 @@ export function applyVisualQuality(engine: Engine) {
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       if (!(material instanceof THREE.MeshStandardMaterial) && !(material instanceof THREE.MeshPhysicalMaterial)) continue;
-      material.envMapIntensity = object.name === "wheel" ? 0.35 : 0.62;
-      const maps = [
-        material.map,
-        material.normalMap,
-        material.roughnessMap,
-        material.metalnessMap,
-        material.aoMap,
-      ];
+
+      const heroMaterial = object.name === "wheel" || object.name === "wheel-rim";
+      material.envMapIntensity = heroMaterial ? 0.38 : 0.62;
+
+      const maps = [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.aoMap];
       for (const texture of maps) {
         if (!texture) continue;
         texture.anisotropy = maxAnisotropy;
+        if (texture === material.map) texture.colorSpace = THREE.SRGBColorSpace;
         texture.needsUpdate = true;
       }
     }
   });
 
-  // The original world used a very large shadow camera. Tightening it around
-  // the player greatly increases effective shadow resolution near the rider.
+  // Tight high-resolution shadow camera centred on gameplay rather than the
+  // whole map. This gives much cleaner rider/vehicle/building shadows.
   const sun = world.sun;
   sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
   const extent = mobile ? 44 : 54;
@@ -66,41 +63,86 @@ export function applyVisualQuality(engine: Engine) {
   sun.shadow.normalBias = 0.018;
   sun.shadow.camera.updateProjectionMatrix();
 
-  // Track the rider so the high-resolution shadow area follows gameplay.
   const sunTarget = new THREE.Object3D();
   sunTarget.position.set(0, 0.7, 0);
   rig.group.add(sunTarget);
   sun.target = sunTarget;
 
-  // Soft baked-style contact shadow: cheap, stable and particularly valuable
-  // on web where full SSAO would add another expensive post-processing pass.
   const shadowTexture = makeContactShadowTexture();
-  const contactMaterial = new THREE.MeshBasicMaterial({
-    map: shadowTexture,
-    color: 0x000000,
-    transparent: true,
-    opacity: mobile ? 0.20 : 0.24,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const contact = new THREE.Mesh(new THREE.PlaneGeometry(2.15, 3.65), contactMaterial);
-  contact.rotation.x = -Math.PI / 2;
-  contact.position.set(0, 0.018, -0.02);
-  contact.renderOrder = 2;
-  rig.group.add(contact);
+  const grounding: THREE.Mesh[] = [];
 
-  if (scene.fog instanceof THREE.FogExp2) {
-    scene.fog.density = mobile ? 0.0072 : 0.0062;
+  // Hero rider contact shadow.
+  const riderShadow = createGroundShadow(shadowTexture, 2.15, 3.65, mobile ? 0.18 : 0.23);
+  riderShadow.position.set(0, 0.018, -0.02);
+  rig.group.add(riderShadow);
+  grounding.push(riderShadow);
+
+  // Cheap fake AO/contact shadows for moving traffic. These improve perceived
+  // quality much more than another expensive full-screen post process on web.
+  for (const car of world.traffic) {
+    const kind = car.kind;
+    const size = kind === "bus" ? [2.55, 7.4] : kind === "trotro" ? [2.45, 5.25] : [2.05, 4.35];
+    const s = createGroundShadow(shadowTexture, size[0], size[1], mobile ? 0.10 : 0.14);
+    s.position.y = 0.014;
+    car.mesh.add(s);
+    grounding.push(s);
   }
 
+  // Pedestrians get a very small grounding ellipse so feet stop appearing to
+  // hover, especially in the softer afternoon lighting.
+  if (!mobile) {
+    for (const ped of world.peds) {
+      if (ped.goat) continue;
+      const s = createGroundShadow(shadowTexture, 0.72, 0.46, 0.10);
+      s.position.y = 0.01;
+      ped.mesh.add(s);
+      grounding.push(s);
+    }
+  }
+
+  if (scene.fog instanceof THREE.FogExp2) scene.fog.density = mobile ? 0.0072 : 0.0061;
+
+  // Extend the existing day/night function rather than creating another render
+  // loop. Exposure rises slightly at night while atmospheric haze deepens.
+  const originalApplySky = engine.applySky.bind(engine);
+  engine.applySky = (night: number) => {
+    originalApplySky(night);
+    renderer.toneMappingExposure = (mobile ? 1.04 : 1.08) + night * 0.16;
+    if (scene.fog instanceof THREE.FogExp2) {
+      const dayFog = mobile ? 0.0072 : 0.0061;
+      scene.fog.density = dayFog + night * 0.0014;
+    }
+  };
+
   return () => {
-    rig.group.remove(contact);
-    contact.geometry.dispose();
-    contactMaterial.dispose();
+    engine.applySky = originalApplySky;
+    rig.group.remove(sunTarget);
+
+    for (const mesh of grounding) {
+      mesh.parent?.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+
     shadowTexture.dispose();
     envRT.dispose();
     scene.environment = null;
   };
+}
+
+function createGroundShadow(texture: THREE.Texture, width: number, depth: number, opacity: number) {
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    color: 0x000000,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.renderOrder = 2;
+  return mesh;
 }
 
 function makeContactShadowTexture() {
