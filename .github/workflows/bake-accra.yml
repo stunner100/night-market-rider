@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: osm-accra-world
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -37,6 +38,7 @@ jobs:
             echo "No world changes to commit"
           else
             git commit -m "Bake Accra OSM world assets"
+            git pull --rebase origin osm-accra-world
             git push origin HEAD:osm-accra-world
           fi
       - uses: actions/upload-artifact@v4
