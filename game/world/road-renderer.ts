@@ -79,5 +79,5 @@ export function disposeRoadGroup(group: THREE.Group): void {
     if (Array.isArray(obj.material)) obj.material.forEach(m => materials.add(m));
     else materials.add(obj.material);
   });
-  for (const material of materials) material.dispose();
+  Array.from(materials).forEach(material => material.dispose());
 }
