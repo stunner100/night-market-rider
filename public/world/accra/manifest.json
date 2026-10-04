@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-04T20:40:15.782Z",
+  "generatedAt": "2026-10-04T20:44:38.551Z",
   "source": "OpenStreetMap via Overpass API",
   "attribution": "Map data © OpenStreetMap contributors",
   "license": "ODbL-1.0",
@@ -20,8 +20,8 @@
     "roads": 1165,
     "buildings": 2955,
     "pois": 196,
-    "graphNodes": 5957,
-    "graphEdges": 12374
+    "graphNodes": 5203,
+    "graphEdges": 10576
   },
   "chunks": [
     {
