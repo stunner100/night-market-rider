@@ -151,15 +151,30 @@ function assignChunks(data) {
     return chunks.get(key);
   };
 
+  // Store only local road segments in each chunk. This prevents a long OSM way
+  // from being rendered repeatedly in every chunk it happens to cross.
   for (const road of data.roads) {
-    const minX = Math.min(...road.points.map(p => p.x));
-    const maxX = Math.max(...road.points.map(p => p.x));
-    const minZ = Math.min(...road.points.map(p => p.z));
-    const maxZ = Math.max(...road.points.map(p => p.z));
-    for (let cx = chunkCoord(minX); cx <= chunkCoord(maxX); cx++) {
-      for (let cz = chunkCoord(minZ); cz <= chunkCoord(maxZ); cz++) get(cx, cz).roads.push(road);
+    for (let i = 0; i < road.points.length - 1; i++) {
+      const a = road.points[i];
+      const b = road.points[i + 1];
+      const mx = (a.x + b.x) * 0.5;
+      const mz = (a.z + b.z) * 0.5;
+      const cx = chunkCoord(mx);
+      const cz = chunkCoord(mz);
+      get(cx, cz).roads.push({
+        id: `${road.id}:${i}`,
+        osmId: road.osmId,
+        highway: road.highway,
+        name: road.name,
+        width: road.width,
+        oneWay: road.oneWay,
+        surface: road.surface,
+        points: [a, b],
+        tags: road.tags,
+      });
     }
   }
+
   for (const b of data.buildings) {
     const x = b.footprint.reduce((s, p) => s + p.x, 0) / b.footprint.length;
     const z = b.footprint.reduce((s, p) => s + p.z, 0) / b.footprint.length;
