@@ -1,713 +1,96 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { buildingTexture, trotroTexture, corrugatedTexture, woodTexture, carPaintTexture } from './textures';
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { buildingTexture, trotroTexture, corrugatedTexture, woodTexture, carPaintTexture } from "./textures";
 
-const gltfLoader = new GLTFLoader();
+const loader = new GLTFLoader();
 const modelCache = new Map<string, THREE.Group>();
 const pendingLoads = new Map<string, Promise<THREE.Group>>();
 
 export function loadModel(path: string): Promise<THREE.Group> {
   const cached = modelCache.get(path);
   if (cached) return Promise.resolve(cached.clone(true));
-
   const pending = pendingLoads.get(path);
   if (pending) return pending.then((g) => g.clone(true));
-
   const p = new Promise<THREE.Group>((resolve, reject) => {
-    gltfLoader.load(
-      path,
-      (gltf) => {
-        const root = gltf.scene;
-        root.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-          }
-        });
-        modelCache.set(path, root);
-        pendingLoads.delete(path);
-        resolve(root.clone(true));
-      },
-      undefined,
-      (err) => {
-        console.warn(`Could not load GLB from ${path}, using fallback generator:`, err);
-        pendingLoads.delete(path);
-        reject(err);
-      }
-    );
+    loader.load(path, (gltf) => {
+      const root = gltf.scene;
+      root.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+      modelCache.set(path, root); pendingLoads.delete(path); resolve(root.clone(true));
+    }, undefined, (err) => { pendingLoads.delete(path); reject(err); });
   });
-
   pendingLoads.set(path, p);
   return p;
 }
 
-// Synchronous immediate generators matching the GLB specs for instant zero-latency scene initialization
-function pbr(color: number, roughness = 0.6, metalness = 0.1): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+const pbr = (color: number, roughness = 0.65, metalness = 0.06) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+const paint = (color: number) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.28, metalness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.22 });
+const glass = (color = 0x20303e, opacity = 0.78) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.1, metalness: 0.08, transparent: true, opacity, clearcoat: 0.75, clearcoatRoughness: 0.08 });
+const rb = (w: number, h: number, d: number, r = 0.1) => new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w * .22, h * .22, d * .22));
+function box(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0, z = 0, r = .08) {
+  const m = new THREE.Mesh(rb(w, h, d, r), mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; return m;
 }
-function glass(color = 0x2b303a, opacity = 0.75): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.1, metalness: 0.8, transparent: true, opacity });
+function wheel(g: THREE.Group, x: number, z: number, radius: number, tire: THREE.Material, rim: THREE.Material) {
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, .28, 20), tire); t.rotation.z = Math.PI / 2; t.position.set(x, radius, z); t.castShadow = true; t.name = "wheel";
+  const r = new THREE.Mesh(new THREE.CylinderGeometry(radius * .56, radius * .56, .30, 16), rim); r.rotation.z = Math.PI / 2; r.position.set(x, radius, z); r.castShadow = true; r.name = "wheel-rim";
+  g.add(t, r);
 }
+function lamps(g: THREE.Group, frontZ: number, rearZ: number, y: number, span: number) {
+  const head = new THREE.MeshStandardMaterial({ color: 0xfff2bf, roughness: .15, emissive: 0xffd17a, emissiveIntensity: .45 });
+  const tail = new THREE.MeshStandardMaterial({ color: 0x8f1111, roughness: .2, emissive: 0x550000, emissiveIntensity: .45 });
+  for (const x of [-span, span]) { g.add(box(.38, .17, .06, head, x, y, frontZ, .025)); g.add(box(.38, .17, .06, tail, x, y, rearZ, .025)); }
+}
+function brake(g: THREE.Group, z: number, y: number, w = 1.1) { const m = box(w, .12, .045, new THREE.MeshBasicMaterial({ color: 0x550000 }), 0, y, z, .02); m.name = "brake"; g.add(m); }
 
 export function createTrotroMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "Trotro";
-
-  const bodyMat = pbr(0xf8f9fa, 0.4, 0.2); // White body
-  bodyMat.map = trotroTexture();
-  const stripeMat = pbr(0x198754, 0.5, 0.1); // Green side stripe
-  const yellowMat = pbr(0xfcc419, 0.5, 0.1); // Yellow accent
-  const blackMat = pbr(0x212529, 0.8, 0.1);
-  const chromeMat = pbr(0xdde1e5, 0.15, 0.9);
-  const winMat = glass(0x2b303a, 0.8);
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.8, 5.2), bodyMat);
-  body.position.y = 1.4;
-  body.castShadow = true; body.receiveShadow = true;
-  g.add(body);
-
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(2.28, 0.9, 0.6), bodyMat);
-  nose.position.set(0, 0.95, 2.7);
-  nose.castShadow = true;
-  g.add(nose);
-
-  const noseCurve = new THREE.Mesh(new THREE.SphereGeometry(1.15, 12, 8), bodyMat);
-  noseCurve.scale.set(1.0, 0.78, 0.5);
-  noseCurve.position.set(0, 1.4, 2.9);
-  g.add(noseCurve);
-
-  for (const sx of [-1.16, 1.16]) {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.35, 4.8), stripeMat);
-    s.position.set(sx, 1.15, 0.1);
-    const y = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.18, 4.8), yellowMat);
-    y.position.set(sx, 0.85, 0.1);
-    g.add(s, y);
-  }
-
-  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.05), winMat);
-  windshield.position.set(0, 1.85, 2.5);
-  windshield.rotation.x = -0.3;
-  g.add(windshield);
-
-  const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.25, 0.08), yellowMat);
-  signBoard.position.set(0, 2.25, 2.45);
-  g.add(signBoard);
-
-  for (const sx of [-1.16, 1.16]) {
-    const sideWins = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.65, 3.8), winMat);
-    sideWins.position.set(sx, 1.75, -0.2);
-    g.add(sideWins);
-  }
-
-  const rack = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 3.6), blackMat);
-  rack.position.set(0, 2.38, -0.2);
-  g.add(rack);
-
-  const parcel1 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.3, 0.9), pbr(0x845ef7, 0.7));
-  parcel1.position.set(-0.35, 2.58, 0.2);
-  const parcel2 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.7), pbr(0xd9480f, 0.8));
-  parcel2.position.set(0.4, 2.55, -0.5);
-  g.add(parcel1, parcel2);
-
-  const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.28, 0.2), blackMat);
-  frontBumper.position.set(0, 0.5, 2.95);
-  const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.28, 0.2), blackMat);
-  rearBumper.position.set(0, 0.5, -2.65);
-  g.add(frontBumper, rearBumper);
-
-  // Brake light
-  const brake = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.18, 0.06), new THREE.MeshBasicMaterial({ color: 0x550000 }));
-  brake.position.set(0, 0.9, -2.62);
-  brake.name = "brake";
-  g.add(brake);
-
-  // Wheels
-  const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.32, 16);
-  const rimGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.34, 10);
-  const wpos = [[-1.1, 1.6], [1.1, 1.6], [-1.1, -1.6], [1.1, -1.6]];
-  for (const [x, z] of wpos) {
-    const tire = new THREE.Mesh(tireGeo, blackMat);
-    tire.rotation.z = Math.PI / 2;
-    tire.position.set(x, 0.42, z);
-    const rim = new THREE.Mesh(rimGeo, chromeMat);
-    rim.rotation.z = Math.PI / 2;
-    rim.position.set(x, 0.42, z);
-    g.add(tire, rim);
-  }
-
-  return g;
+  const g = new THREE.Group(); g.name = "Trotro";
+  const body = paint(0xf7f8f9); body.map = trotroTexture(); const dark = pbr(0x171b1e, .78, .18); const chrome = pbr(0xdfe3e6, .16, .9); const green = pbr(0x268a4b, .46); const yellow = pbr(0xf4c542, .46); const win = glass();
+  g.add(box(2.32, 1.75, 5.02, body, 0, 1.38, 0, .22), box(2.34, .36, 4.95, dark, 0, .63, 0, .07), box(2.24, .9, .76, body, 0, 1.15, 2.55, .18));
+  const wind = box(2.03, .76, .045, win, 0, 1.82, 2.55, .02); wind.rotation.x = -.12; g.add(wind, box(1.52, .23, .07, yellow, 0, 2.25, 2.51, .03));
+  for (const s of [-1, 1]) { const x = s * 1.17; g.add(box(.035, .15, 4.55, green, x, 1.16, 0, .01), box(.035, .08, 4.55, yellow, x, .91, 0, .01)); for (const z of [-1.42, -.55, .32, 1.19]) g.add(box(.03, .61, .72, win, x, 1.78, z, .01)); }
+  g.add(box(2.23, .15, 4.82, body, 0, 2.31, 0, .08)); for (const x of [-.82, .82]) g.add(box(.055, .09, 3.6, dark, x, 2.48, -.1, .02)); for (const z of [-1.65, -.55, .55, 1.65]) g.add(box(1.75, .06, .05, dark, 0, 2.49, z, .02));
+  g.add(box(.72, .32, .88, pbr(0x845ef7, .78), -.38, 2.68, .15, .07), box(.62, .27, .72, pbr(0xd9480f, .78), .38, 2.65, -.55, .07));
+  lamps(g, 2.93, -2.57, .92, .69); brake(g, -2.58, .78, 1.2); for (const [x, z] of [[-1.12, 1.55], [1.12, 1.55], [-1.12, -1.55], [1.12, -1.55]] as const) wheel(g, x, z, .42, dark, chrome); return g;
 }
 
-export function createTaxiMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "GhanaTaxi";
-
-  const bodyMat = pbr(0x1864ab, 0.35, 0.5);
-  bodyMat.map = carPaintTexture('#1864ab');
-  const fenderMat = pbr(0xf59f00, 0.4, 0.3); // Bright orange-yellow Accra taxi quarter panels
-  const blackMat = pbr(0x1a1a1a, 0.8);
-  const chromeMat = pbr(0xe9ecef, 0.1, 0.95);
-  const winMat = glass(0x343a40, 0.75);
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.65, 4.2), bodyMat);
-  body.position.y = 0.75;
-  body.castShadow = true; body.receiveShadow = true;
-  g.add(body);
-
-  const frontFender = new THREE.Mesh(new THREE.BoxGeometry(1.87, 0.66, 1.1), fenderMat);
-  frontFender.position.set(0, 0.75, 1.55);
-  const rearFender = new THREE.Mesh(new THREE.BoxGeometry(1.87, 0.66, 1.0), fenderMat);
-  rearFender.position.set(0, 0.75, -1.6);
-  g.add(frontFender, rearFender);
-
-  const noseCurve = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 8), fenderMat);
-  noseCurve.scale.set(0.9, 0.32, 0.5);
-  noseCurve.position.set(0, 0.75, 2.1);
-  const tailCurve = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 8), fenderMat);
-  tailCurve.scale.set(0.9, 0.32, 0.5);
-  tailCurve.position.set(0, 0.75, -2.1);
-  g.add(noseCurve, tailCurve);
-
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.65, 2.1), bodyMat);
-  cabin.position.set(0, 1.4, -0.15);
-  g.add(cabin);
-
-  const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.6, 0.05), winMat);
-  frontGlass.position.set(0, 1.4, 0.88);
-  frontGlass.rotation.x = -0.3;
-  const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.55, 0.05), winMat);
-  rearGlass.position.set(0, 1.42, -1.18);
-  rearGlass.rotation.x = 0.25;
-  g.add(frontGlass, rearGlass);
-
-  const taxiSign = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.18, 0.22), pbr(0xffd43b, 0.3, 0.1));
-  taxiSign.position.set(0, 1.82, -0.15);
-  g.add(taxiSign);
-
-  const brake = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0x550000 }));
-  brake.position.set(0, 0.8, -2.12);
-  brake.name = "brake";
-  g.add(brake);
-
-  const tireGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.26, 16);
-  const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.28, 10);
-  for (const [x, z] of [[-0.95, 1.35], [0.95, 1.35], [-0.95, -1.35], [0.95, -1.35]]) {
-    const t = new THREE.Mesh(tireGeo, blackMat);
-    t.rotation.z = Math.PI / 2;
-    t.position.set(x, 0.38, z);
-    const h = new THREE.Mesh(hubGeo, chromeMat);
-    h.rotation.z = Math.PI / 2;
-    h.position.set(x, 0.38, z);
-    g.add(t, h);
-  }
-
-  return g;
+function sedanBase(name: string, color: number, taxi = false): THREE.Group {
+  const g = new THREE.Group(); g.name = name; const body = paint(color); body.map = carPaintTexture("#" + color.toString(16).padStart(6, "0")); const dark = pbr(0x14171a, .8, .12); const chrome = pbr(0xe4e7ea, .15, .9); const win = glass(); const accent = taxi ? paint(0xf59f00) : body;
+  g.add(box(1.86, .62, 4.14, body, 0, .75, 0, .2), box(1.72, .34, .92, accent, 0, 1.02, 1.56, .15), box(1.72, .32, .84, accent, 0, 1.01, -1.65, .15), box(1.56, .66, 2.16, body, 0, 1.34, -.12, .16));
+  const fw = box(1.43, .54, .045, win, 0, 1.39, .94, .02); fw.rotation.x = -.28; const rw = box(1.43, .49, .045, win, 0, 1.39, -1.14, .02); rw.rotation.x = .23; g.add(fw, rw);
+  for (const s of [-1, 1]) { const x = s * .795; for (const z of [-.58, .36]) g.add(box(.03, .46, .68, win, x, 1.38, z, .01)); g.add(box(.035, .05, 1.9, chrome, x, 1.05, -.05, .01)); }
+  if (taxi) g.add(box(.66, .19, .27, pbr(0xffd43b, .35), 0, 1.82, -.08, .05));
+  lamps(g, 2.11, -2.11, .8, .58); brake(g, -2.13, .93); for (const [x, z] of [[-.95, 1.37], [.95, 1.37], [-.95, -1.37], [.95, -1.37]] as const) wheel(g, x, z, .38, dark, chrome); return g;
 }
-
-export function createCarMesh(colorHex = 0xc92a2a): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "Sedan";
-
-  const paintMat = pbr(colorHex, 0.25, 0.6);
-  paintMat.map = carPaintTexture('#' + colorHex.toString(16).padStart(6, '0'));
-  const blackMat = pbr(0x111111, 0.8);
-  const chromeMat = pbr(0xced4da, 0.1, 0.95);
-  const winMat = glass(0x212529, 0.7);
-
-  const lower = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.65, 4.3), paintMat);
-  lower.position.y = 0.72;
-  lower.castShadow = true; lower.receiveShadow = true;
-  g.add(lower);
-
-  const noseCurve = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 8), paintMat);
-  noseCurve.scale.set(0.9, 0.32, 0.5);
-  noseCurve.position.set(0, 0.72, 2.15);
-  g.add(noseCurve);
-
-  const top = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.62, 2.2), paintMat);
-  top.position.set(0, 1.34, -0.2);
-  g.add(top);
-
-  const frontWin = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.58, 0.05), winMat);
-  frontWin.position.set(0, 1.34, 0.9);
-  frontWin.rotation.x = -0.32;
-  g.add(frontWin);
-
-  const brake = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.15, 0.06), new THREE.MeshBasicMaterial({ color: 0x550000 }));
-  brake.position.set(0, 0.8, -2.16);
-  brake.name = "brake";
-  g.add(brake);
-
-  const tireGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.26, 16);
-  const rimGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.28, 12);
-  for (const [x, z] of [[-0.95, 1.4], [0.95, 1.4], [-0.95, -1.4], [0.95, -1.4]]) {
-    const t = new THREE.Mesh(tireGeo, blackMat);
-    t.rotation.z = Math.PI / 2;
-    t.position.set(x, 0.38, z);
-    const r = new THREE.Mesh(rimGeo, chromeMat);
-    r.rotation.z = Math.PI / 2;
-    r.position.set(x, 0.38, z);
-    g.add(t, r);
-  }
-
-  return g;
-}
+export const createTaxiMesh = () => sedanBase("GhanaTaxi", 0x1769aa, true);
+export const createCarMesh = (colorHex = 0xc92a2a) => sedanBase("Sedan", colorHex, false);
 
 export function createBusMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "Bus";
-
-  const bodyMat = pbr(0xd9480f, 0.4, 0.2);
-  const blackMat = pbr(0x212529, 0.8);
-  const winMat = glass(0x212529, 0.75);
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.3, 7.8), bodyMat);
-  body.position.y = 1.6;
-  body.castShadow = true; body.receiveShadow = true;
-  g.add(body);
-
-  const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.2, 0.05), winMat);
-  frontGlass.position.set(0, 1.9, 3.91);
-  g.add(frontGlass);
-
-  const brake = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.22, 0.06), new THREE.MeshBasicMaterial({ color: 0x550000 }));
-  brake.position.set(0, 1.0, -3.92);
-  brake.name = "brake";
-  g.add(brake);
-
-  const tireGeo = new THREE.CylinderGeometry(0.48, 0.48, 0.34, 16);
-  for (const [x, z] of [[-1.15, 2.4], [1.15, 2.4], [-1.15, -2.4], [1.15, -2.4]]) {
-    const t = new THREE.Mesh(tireGeo, blackMat);
-    t.rotation.z = Math.PI / 2;
-    t.position.set(x, 0.48, z);
-    g.add(t);
-  }
-
-  return g;
+  const g = new THREE.Group(); g.name = "Bus"; const body = paint(0xd9480f); const cream = pbr(0xf1f3f5, .55); const dark = pbr(0x17191b, .8, .16); const chrome = pbr(0xdde2e6, .15, .9); const win = glass();
+  g.add(box(2.42, 2.28, 7.65, body, 0, 1.62, 0, .24), box(2.44, .30, 7.58, cream, 0, 1.02, 0, .06)); const f = box(2.18, 1.04, .05, win, 0, 2.03, 3.82, .02); f.rotation.x = -.04; g.add(f);
+  for (const s of [-1, 1]) for (const z of [-2.65, -1.68, -.71, .26, 1.23, 2.2]) g.add(box(.03, .72, .77, win, s * 1.218, 2.03, z, .01));
+  lamps(g, 3.88, -3.88, 1.08, .73); brake(g, -3.9, 1.28, 1.42); for (const [x, z] of [[-1.16, 2.55], [1.16, 2.55], [-1.16, -2.55], [1.16, -2.55]] as const) wheel(g, x, z, .48, dark, chrome); return g;
 }
 
-export function createLegonHallMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "LegonHall";
-
-  const wallMat = pbr(0xf1ece1, 0.85);
-  wallMat.map = buildingTexture('#f1ece1', 3, 8);
-  const roofMat = pbr(0xa85836, 0.65, 0.1);
-  const columnMat = pbr(0xffffff, 0.7);
-
-  const main = new THREE.Mesh(new THREE.BoxGeometry(14, 7, 8), wallMat);
-  main.position.y = 3.5;
-  main.castShadow = true; main.receiveShadow = true;
-  g.add(main);
-
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(10.5, 3.2, 4), roofMat);
-  roof.position.y = 8.6;
-  roof.rotation.y = Math.PI / 4;
-  roof.castShadow = true;
-  g.add(roof);
-
-  const porticoBase = new THREE.Mesh(new THREE.BoxGeometry(6, 0.6, 2.5), pbr(0xd0c8b8, 0.8));
-  porticoBase.position.set(0, 0.3, 4.8);
-  g.add(porticoBase);
-
-  const colGeo = new THREE.CylinderGeometry(0.22, 0.26, 5.8, 12);
-  for (let i = -3; i <= 3; i += 2) {
-    const col = new THREE.Mesh(colGeo, columnMat);
-    col.position.set(i * 0.85, 3.2, 5.5);
-    col.castShadow = true;
-    g.add(col);
-  }
-
-  const pediment = new THREE.Mesh(new THREE.ConeGeometry(4.2, 1.8, 4), roofMat);
-  pediment.position.set(0, 6.8, 4.8);
-  pediment.rotation.y = Math.PI / 4;
-  g.add(pediment);
-
-  return g;
+function facade(g: THREE.Group, width: number, floors: number, cols: number, frontZ: number, y0: number, stepY: number) {
+  const trim = pbr(0x404850, .55, .12), win = glass(0x26394a, .8); const usable = width - 1.3, dx = usable / cols;
+  for (let f = 0; f < floors; f++) for (let c = 0; c < cols; c++) { const x = -usable / 2 + dx * (c + .5), y = y0 + f * stepY; g.add(box(dx * .62, .94, .08, trim, x, y, frontZ, .02), box(dx * .54, .79, .1, win, x, y, frontZ + .03, .02)); }
 }
-
-export function createCompoundHouseMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "CompoundHouse";
-
-  const wallMat = pbr(0xfff3bf, 0.8);
-  wallMat.map = buildingTexture('#fff3bf', 3, 5);
-  const trimMat = pbr(0x495057, 0.6);
-  const gateMat = pbr(0x212529, 0.4, 0.8);
-
-  const wallFrontL = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.4, 0.35), trimMat);
-  wallFrontL.position.set(-4.6, 1.2, 6);
-  const wallFrontR = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.4, 0.35), trimMat);
-  wallFrontR.position.set(4.6, 1.2, 6);
-  const wallBack = new THREE.Mesh(new THREE.BoxGeometry(14, 2.4, 0.35), trimMat);
-  wallBack.position.set(0, 1.2, -6);
-  const wallL = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.4, 12), trimMat);
-  wallL.position.set(-7, 1.2, 0);
-  const wallR = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.4, 12), trimMat);
-  wallR.position.set(7, 1.2, 0);
-  g.add(wallFrontL, wallFrontR, wallBack, wallL, wallR);
-
-  const gate = new THREE.Mesh(new THREE.BoxGeometry(4.0, 2.2, 0.1), gateMat);
-  gate.position.set(0, 1.1, 6.0);
-  g.add(gate);
-
-  const villa = new THREE.Mesh(new THREE.BoxGeometry(9, 6.2, 8), wallMat);
-  villa.position.set(0, 3.1, -0.5);
-  villa.castShadow = true; villa.receiveShadow = true;
-  g.add(villa);
-
-  const tankTower = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 1.2), pbr(0x868e96, 0.5, 0.7));
-  tankTower.position.set(3.2, 6.9, -3.2);
-  const polyTank = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.4, 16), pbr(0x1a1a1a, 0.6));
-  polyTank.position.set(3.2, 8.2, -3.2);
-  g.add(tankTower, polyTank);
-
-  return g;
-}
-
-export function createCommercialShopMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "CommercialShop";
-
-  const wallMat = pbr(0xdbe4ff, 0.8);
-  wallMat.map = buildingTexture('#dbe4ff', 4, 6);
-  const storeTileMat = pbr(0x495057, 0.4);
-  const awningMat = pbr(0xc92a2a, 0.75);
-
-  const main = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 7), wallMat);
-  main.position.y = 4.0;
-  main.castShadow = true; main.receiveShadow = true;
-  g.add(main);
-
-  const groundFacade = new THREE.Mesh(new THREE.BoxGeometry(7.8, 3.2, 0.2), storeTileMat);
-  groundFacade.position.set(0, 1.6, 3.55);
-  g.add(groundFacade);
-
-  const awning = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.6), awningMat);
-  awning.position.set(0, 3.1, 4.2);
-  awning.rotation.x = -0.22;
-  g.add(awning);
-
-  return g;
-}
-
-export function createMarketStallMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "MarketStall";
-
-  const timberMat = pbr(0x6b4226, 0.9);
-  timberMat.map = woodTexture();
-  const tinRoofMat = pbr(0xadb5bd, 0.5, 0.3);
-  tinRoofMat.map = corrugatedTexture('#adb5bd');
-
-  const postGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
-  for (const [x, z] of [[-1.4, -1.0], [1.4, -1.0], [-1.4, 1.0], [1.4, 1.0]]) {
-    const post = new THREE.Mesh(postGeo, timberMat);
-    post.position.set(x, 1.3, z);
-    post.castShadow = true;
-    g.add(post);
-  }
-
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 2.4), tinRoofMat);
-  roof.position.set(0, 2.6, 0);
-  roof.rotation.x = -0.15;
-  roof.castShadow = true;
-  g.add(roof);
-
-  const table = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.9, 1.4), timberMat);
-  table.position.set(0, 0.45, 0.2);
-  g.add(table);
-
-  return g;
-}
-
-export function createChopBarMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "ChopBar";
-
-  const woodMat = pbr(0x6b4226, 0.85);
-  woodMat.map = woodTexture();
-  const tinMat = pbr(0xb08968, 0.6, 0.2);
-  tinMat.map = corrugatedTexture('#b08968');
-  const metalMat = pbr(0xced4da, 0.2, 0.8);
-
-  const postGeo = new THREE.CylinderGeometry(0.09, 0.09, 2.8, 6);
-  for (const [x, z] of [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]]) {
-    const p = new THREE.Mesh(postGeo, woodMat);
-    p.position.set(x, 1.4, z);
-    g.add(p);
-  }
-
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 1.4, 4), tinMat);
-  roof.position.y = 3.2;
-  roof.rotation.y = Math.PI / 4;
-  g.add(roof);
-
-  const table = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 1.0), woodMat);
-  table.position.set(0, 0.4, 0.3);
-  g.add(table);
-
-  const potGeo = new THREE.CylinderGeometry(0.35, 0.3, 0.5, 12);
-  const pot1 = new THREE.Mesh(potGeo, metalMat);
-  pot1.position.set(-1.4, 0.6, -1.0);
-  g.add(pot1);
-
-  return g;
-}
-
-export function createMoMoKioskMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "MoMoKiosk";
-
-  const mtnYellow = pbr(0xffcc00, 0.45, 0.1);
-  const mtnBlue = pbr(0x003366, 0.45, 0.1);
-  const grilleMat = pbr(0x212529, 0.6, 0.7);
-
-  const booth = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.4, 1.8), mtnYellow);
-  booth.position.y = 1.2;
-  booth.castShadow = true; booth.receiveShadow = true;
-  g.add(booth);
-
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.4, 1.84), mtnBlue);
-  stripe.position.y = 0.2;
-  g.add(stripe);
-
-  const windowOpening = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 0.1), grilleMat);
-  windowOpening.position.set(0, 1.4, 0.91);
-  g.add(windowOpening);
-
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 0.4), mtnBlue);
-  shelf.position.set(0, 0.95, 1.1);
-  g.add(shelf);
-
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 0.08), mtnBlue);
-  sign.position.set(0, 2.2, 0.92);
-  g.add(sign);
-
-  return g;
-}
-
-export function createStreetlightMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "Streetlight";
-
-  const steelMat = pbr(0x868e96, 0.35, 0.8);
-  const lampMat = pbr(0xfff3bf, 0.2, 0.1);
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 8.5, 10), steelMat);
-  pole.position.y = 4.25;
-  pole.castShadow = true;
-  g.add(pole);
-
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), steelMat);
-  arm.position.set(0.9, 8.4, 0);
-  arm.rotation.z = -Math.PI / 3;
-  g.add(arm);
-
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), steelMat);
-  head.position.set(1.8, 8.7, 0);
-  const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.25), lampMat);
-  bulb.position.set(1.8, 8.6, 0);
-  bulb.name = "lamp";
-  g.add(head, bulb);
-
-  return g;
-}
-
-export function createPowerPoleMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "PowerPole";
-
-  const woodMat = pbr(0x5c4033, 0.9);
-  const steelMat = pbr(0x343a40, 0.5, 0.8);
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 9.5, 8), woodMat);
-  pole.position.y = 4.75;
-  pole.castShadow = true;
-  g.add(pole);
-
-  const cross1 = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.12), woodMat);
-  cross1.position.set(0, 9.1, 0);
-  g.add(cross1);
-
-  const trans = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.0, 10), steelMat);
-  trans.position.set(0.45, 7.2, 0);
-  g.add(trans);
-
-  return g;
-}
-
-export function createTrafficLightMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "TrafficLight";
-
-  const poleMat = pbr(0x343a40, 0.5, 0.8);
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 6.5, 8), poleMat);
-  pole.position.y = 3.25;
-  pole.castShadow = true;
-  g.add(pole);
-
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.5, 8), poleMat);
-  arm.rotation.z = Math.PI / 2;
-  arm.position.set(1.75, 6.2, 0);
-  g.add(arm);
-
-  const house = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 0.35), poleMat);
-  house.position.set(3.2, 5.8, 0);
-  g.add(house);
-
-  return g;
-}
-
-export function createRoadBarrierMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "RoadBarrier";
-
-  const concMat = pbr(0xadb5bd, 0.85);
-  const redMat = pbr(0xe03131, 0.6);
-
-  const barrier = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.9, 0.6), concMat);
-  barrier.position.y = 0.45;
-  barrier.castShadow = true; barrier.receiveShadow = true;
-  g.add(barrier);
-
-  for (const x of [-0.8, 0, 0.8]) {
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.62), redMat);
-    stripe.position.set(x, 0.45, 0);
-    g.add(stripe);
-  }
-
-  return g;
-}
-
-export function createPalmTreeMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "PalmTree";
-
-  const trunkMat = pbr(0x795548, 0.9);
-  const frondMat = pbr(0x2f9e44, 0.65);
-  const cocoMat = pbr(0x4e342e, 0.8);
-
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0.2, 2.5, 0.1),
-    new THREE.Vector3(0.6, 5.0, 0.3),
-    new THREE.Vector3(0.8, 7.2, 0.4),
-  ]);
-  const trunkGeo = new THREE.TubeGeometry(curve, 10, 0.22, 8, false);
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  trunk.castShadow = true;
-  g.add(trunk);
-
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    const coco = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 6), cocoMat);
-    coco.position.set(0.8 + Math.cos(a) * 0.25, 6.9, 0.4 + Math.sin(a) * 0.25);
-    g.add(coco);
-  }
-
-  const frondGeo = new THREE.ConeGeometry(0.5, 3.2, 5);
-  frondGeo.translate(0, 1.6, 0);
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    const frond = new THREE.Mesh(frondGeo, frondMat);
-    frond.position.set(0.8, 7.2, 0.4);
-    frond.rotation.y = a;
-    frond.rotation.z = Math.PI / 3.2;
-    frond.castShadow = true;
-    g.add(frond);
-  }
-
-  return g;
-}
-
-export function createShadeTreeMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "ShadeTree";
-
-  const barkMat = pbr(0x4a2e18, 0.9);
-  const leafMat = pbr(0x2b8a3e, 0.7);
-
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 3.5, 8), barkMat);
-  trunk.position.y = 1.75;
-  trunk.castShadow = true;
-  g.add(trunk);
-
-  const foliageCenters = [
-    [0, 4.4, 0, 2.4],
-    [-1.2, 4.0, 0.6, 1.8],
-    [1.3, 4.2, -0.5, 1.9],
-    [0.4, 4.8, 1.1, 1.7],
-    [-0.5, 5.2, -0.8, 1.6],
-    [0, 6.0, 0, 1.5],
-  ];
-
-  for (const [x, y, z, s] of foliageCenters) {
-    const fol = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 1), leafMat);
-    fol.position.set(x, y, z);
-    fol.castShadow = true;
-    g.add(fol);
-  }
-
-  return g;
-}
-
-export function createGoatMesh(): THREE.Group {
-  const g = new THREE.Group();
-  g.name = "Goat";
-
-  const furMat = pbr(0xe9ecef, 0.85);
-  const brownMat = pbr(0x795548, 0.85);
-  const hornMat = pbr(0x495057, 0.5, 0.2);
-
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), furMat);
-  body.scale.set(1.5, 0.85, 0.75);
-  body.position.y = 0.5;
-  body.castShadow = true;
-  g.add(body);
-
-  const patch = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 6), brownMat);
-  patch.position.set(0.1, 0.65, 0.1);
-  g.add(patch);
-
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.35, 6), furMat);
-  neck.position.set(0.48, 0.68, 0);
-  neck.rotation.z = -0.4;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 6), furMat);
-  head.scale.set(1.3, 1.0, 0.85);
-  head.position.set(0.62, 0.82, 0);
-  g.add(neck, head);
-
-  const hornGeo = new THREE.CylinderGeometry(0.015, 0.03, 0.22, 5);
-  for (const sz of [-0.07, 0.07]) {
-    const horn = new THREE.Mesh(hornGeo, hornMat);
-    horn.position.set(0.55, 0.98, sz);
-    horn.rotation.z = -0.5;
-    horn.rotation.x = sz * 1.5;
-    g.add(horn);
-  }
-
-  const legGeo = new THREE.CylinderGeometry(0.045, 0.05, 0.45, 6);
-  for (const [lx, lz] of [[-0.3, -0.16], [-0.3, 0.16], [0.3, -0.16], [0.3, 0.16]]) {
-    const leg = new THREE.Mesh(legGeo, furMat);
-    leg.position.set(lx, 0.22, lz);
-    g.add(leg);
-  }
-
-  return g;
-}
+export function createLegonHallMesh(): THREE.Group { const g = new THREE.Group(); g.name = "LegonHall"; const wall = pbr(0xf0eadf, .82); wall.map = buildingTexture("#f0eadf", 3, 8); const roof = pbr(0xa85738, .7); g.add(box(14, 7, 8, wall, 0, 3.5, 0, .12)); const r = new THREE.Mesh(new THREE.ConeGeometry(10.5, 3.1, 4), roof); r.position.y = 8.55; r.rotation.y = Math.PI / 4; r.castShadow = true; g.add(r); facade(g, 12.6, 2, 6, 4.04, 2.15, 2.15); for (const x of [-2.7, -.9, .9, 2.7]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(.22, .28, 5.7, 14), pbr(0xf8f9fa, .7)); c.position.set(x, 3.15, 5.45); c.castShadow = true; g.add(c); } return g; }
+export function createCompoundHouseMesh(): THREE.Group { const g = new THREE.Group(); g.name = "CompoundHouse"; const wall = pbr(0xfff3bf, .82); wall.map = buildingTexture("#fff3bf", 3, 5); const b = pbr(0x59616a, .72), gate = pbr(0x212529, .42, .75); g.add(box(4.8, 2.4, .34, b, -4.6, 1.2, 6), box(4.8, 2.4, .34, b, 4.6, 1.2, 6), box(14, 2.4, .34, b, 0, 1.2, -6), box(.34, 2.4, 12, b, -7, 1.2, 0), box(.34, 2.4, 12, b, 7, 1.2, 0), box(3.95, 2.15, .13, gate, 0, 1.08, 6.02), box(9, 6, 8, wall, 0, 3, -.55, .13)); facade(g, 8.2, 2, 3, 3.47, 2, 2.05); const tank = new THREE.Mesh(new THREE.CylinderGeometry(.75, .75, 1.4, 18), pbr(0x151719, .62)); tank.position.set(3.2, 7.35, -3.2); g.add(tank); return g; }
+export function createCommercialShopMesh(): THREE.Group { const g = new THREE.Group(); g.name = "CommercialShop"; const wall = pbr(0xdbe4ff, .8); wall.map = buildingTexture("#dbe4ff", 4, 6); const dark = pbr(0x3f4750, .52, .16), awn = pbr(0xc92a2a, .68), sign = pbr(0xf2e35c, .45); g.add(box(8, 8, 7, wall, 0, 4, 0, .14)); facade(g, 7.4, 2, 4, 3.54, 4.55, 1.55); g.add(box(7.75, 3.05, .2, dark, 0, 1.55, 3.56), box(5.2, .68, .18, sign, 0, 3.66, 3.72)); const shade = box(7.2, .1, 1.62, awn, 0, 3.12, 4.15, .03); shade.rotation.x = -.2; g.add(shade); return g; }
+export function createMarketStallMesh(): THREE.Group { const g = new THREE.Group(); g.name = "MarketStall"; const wood = pbr(0x6b4226, .9); wood.map = woodTexture(); const tin = pbr(0xadb5bd, .55, .28); tin.map = corrugatedTexture("#adb5bd"); for (const [x, z] of [[-1.42, -1.02], [1.42, -1.02], [-1.42, 1.02], [1.42, 1.02]] as const) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, 2.65, 8), wood); p.position.set(x, 1.33, z); g.add(p); } const roof = box(3.3, .08, 2.48, tin, 0, 2.66, 0, .025); roof.rotation.x = -.12; g.add(roof, box(2.82, .88, 1.34, wood, 0, .44, .22)); return g; }
+export function createChopBarMesh(): THREE.Group { const g = createMarketStallMesh(); g.name = "ChopBar"; g.scale.set(1.45, 1.08, 1.35); const pot = new THREE.Mesh(new THREE.CylinderGeometry(.37, .31, .5, 14), pbr(0xd5d9dd, .24, .8)); pot.position.set(-.9, .62, -.5); g.add(pot); return g; }
+export function createMoMoKioskMesh(): THREE.Group { const g = new THREE.Group(); g.name = "MoMoKiosk"; const yellow = pbr(0xffcc00, .44), navy = pbr(0x073763, .44), dark = pbr(0x212529, .6, .7); g.add(box(1.86, 2.46, 1.86, yellow, 0, 1.23, 0, .09), box(1.9, .36, 1.9, navy, 0, .22, 0), box(1.14, .94, .1, dark, 0, 1.44, .95), box(1.34, .1, .42, navy, 0, .95, 1.16), box(1.62, .38, .1, navy, 0, 2.22, .96)); return g; }
+
+export function createStreetlightMesh(): THREE.Group { const g = new THREE.Group(); g.name = "Streetlight"; const steel = pbr(0x7e8790, .38, .78), lm = new THREE.MeshStandardMaterial({ color: 0xfff3bf, roughness: .18, emissive: 0xffd77d, emissiveIntensity: .18 }); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.12, .18, 8.5, 12), steel); pole.position.y = 4.25; pole.castShadow = true; const arm = new THREE.Mesh(new THREE.CylinderGeometry(.07, .07, 2.4, 10), steel); arm.position.set(.95, 8.36, 0); arm.rotation.z = -Math.PI / 3; const bulb = box(.58, .07, .26, lm, 1.86, 8.57, 0, .02); bulb.name = "lamp"; g.add(pole, arm, bulb); return g; }
+export function createPowerPoleMesh(): THREE.Group { const g = new THREE.Group(); g.name = "PowerPole"; const wood = pbr(0x5c4033, .9); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.14, .18, 9.5, 10), wood); pole.position.y = 4.75; pole.castShadow = true; g.add(pole, box(2.5, .12, .12, wood, 0, 9.08, 0)); return g; }
+export function createTrafficLightMesh(): THREE.Group { const g = new THREE.Group(); g.name = "TrafficLight"; const dark = pbr(0x343a40, .45, .8); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.12, .16, 6.5, 10), dark); pole.position.y = 3.25; const arm = new THREE.Mesh(new THREE.CylinderGeometry(.075, .075, 3.6, 10), dark); arm.rotation.z = Math.PI / 2; arm.position.set(1.78, 6.18, 0); g.add(pole, arm, box(.48, 1.34, .44, dark, 3.28, 5.78, 0)); for (const [c, y] of [[0xff2b2b, 6.16], [0xffc107, 5.78], [0x2fb344, 5.4]] as const) { const m = new THREE.Mesh(new THREE.SphereGeometry(.13, 12, 8), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: .16 })); m.scale.z = .35; m.position.set(3.28, y, .24); g.add(m); } return g; }
+export function createRoadBarrierMesh(): THREE.Group { const g = new THREE.Group(); g.name = "RoadBarrier"; const c = pbr(0xaeb5bc, .86), red = pbr(0xe03131, .6); g.add(box(3, .9, .62, c, 0, .45, 0)); for (const x of [-.92, 0, .92]) { const s = box(.36, .82, .64, red, x, .46, 0, .025); s.rotation.z = -.12; g.add(s); } return g; }
+export function createPalmTreeMesh(): THREE.Group { const g = new THREE.Group(); g.name = "PalmTree"; const trunk = pbr(0x795548, .9), leaf = pbr(0x2f9e44, .68); const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(.15, 2.5, .08), new THREE.Vector3(.48, 5, .24), new THREE.Vector3(.72, 7.2, .36)]); const t = new THREE.Mesh(new THREE.TubeGeometry(curve, 14, .23, 10, false), trunk); t.castShadow = true; g.add(t); const f = new THREE.ConeGeometry(.56, 3.4, 6); f.translate(0, 1.7, 0); for (let i = 0; i < 9; i++) { const m = new THREE.Mesh(f, leaf); m.position.set(.72, 7.23, .36); m.rotation.y = i / 9 * Math.PI * 2; m.rotation.z = Math.PI / 3.15; m.castShadow = true; g.add(m); } return g; }
+export function createShadeTreeMesh(): THREE.Group { const g = new THREE.Group(); g.name = "ShadeTree"; const bark = pbr(0x4a2e18, .9), a = pbr(0x2b8a3e, .72), b = pbr(0x237a35, .76); const t = new THREE.Mesh(new THREE.CylinderGeometry(.34, .55, 3.6, 10), bark); t.position.y = 1.8; t.castShadow = true; g.add(t); const blobs = [[0, 4.5, 0, 2.35], [-1.25, 4.15, .62, 1.75], [1.28, 4.3, -.52, 1.82], [.42, 4.9, 1.05, 1.62], [-.54, 5.25, -.82, 1.55], [.05, 6.05, .04, 1.48]]; blobs.forEach(([x, y, z, s], i) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 2), i % 2 ? a : b); m.position.set(x, y, z); m.castShadow = true; g.add(m); }); return g; }
+export function createGoatMesh(): THREE.Group { const g = new THREE.Group(); g.name = "Goat"; const fur = pbr(0xe9ecef, .86), brown = pbr(0x795548, .86); const body = new THREE.Mesh(new THREE.SphereGeometry(.38, 10, 8), fur); body.scale.set(1.55, .84, .78); body.position.y = .52; body.castShadow = true; const head = new THREE.Mesh(new THREE.SphereGeometry(.17, 9, 7), fur); head.scale.set(1.32, 1, .86); head.position.set(.64, .84, 0); g.add(body, head); const patch = new THREE.Mesh(new THREE.SphereGeometry(.2, 8, 6), brown); patch.position.set(.1, .68, .1); g.add(patch); for (const [x, z] of [[-.3, -.16], [-.3, .16], [.3, -.16], [.3, .16]] as const) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(.045, .052, .46, 7), fur); leg.position.set(x, .23, z); g.add(leg); } return g; }
 
 export function clearModelCache() {
-  modelCache.forEach((m) => {
-    m.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) child.material.forEach((mat) => mat.dispose());
-        else child.material.dispose();
-      }
-    });
-  });
-  modelCache.clear();
-  pendingLoads.clear();
+  modelCache.forEach((m) => m.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); if (Array.isArray(o.material)) o.material.forEach((x) => x.dispose()); else o.material.dispose(); } }));
+  modelCache.clear(); pendingLoads.clear();
 }
