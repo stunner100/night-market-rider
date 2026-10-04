@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WorldRoad } from "./types";
 
 const ROAD_COLORS: Record<string, number> = {
@@ -46,27 +47,29 @@ function segmentGeometry(ax: number, az: number, bx: number, bz: number, width: 
 export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group {
   const group = new THREE.Group();
   group.name = "osm-roads";
-  const mats = new Map<string, THREE.MeshStandardMaterial>();
+  const byClass = new Map<string, THREE.BufferGeometry[]>();
 
   for (const road of roads) {
-    let mat = mats.get(road.highway);
-    if (!mat) {
-      mat = roadMaterial(road.highway);
-      mats.set(road.highway, mat);
-    }
     const width = road.width * (mobile ? 0.98 : 1);
+    const geometries = byClass.get(road.highway) ?? [];
     for (let i = 0; i < road.points.length - 1; i++) {
       const a = road.points[i];
       const b = road.points[i + 1];
       const geo = segmentGeometry(a.x, a.z, b.x, b.z, width);
-      if (!geo) continue;
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.y = 0.035;
-      mesh.receiveShadow = true;
-      mesh.userData.roadId = road.id;
-      mesh.userData.sharedMaterial = true;
-      group.add(mesh);
+      if (geo) geometries.push(geo);
     }
+    if (geometries.length) byClass.set(road.highway, geometries);
+  }
+
+  for (const [highway, geometries] of Array.from(byClass.entries())) {
+    const merged = mergeGeometries(geometries, false);
+    geometries.forEach(g => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, roadMaterial(highway));
+    mesh.position.y = 0.035;
+    mesh.receiveShadow = true;
+    mesh.userData.roadClass = highway;
+    group.add(mesh);
   }
   return group;
 }
