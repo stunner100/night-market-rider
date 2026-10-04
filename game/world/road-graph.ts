@@ -20,7 +20,7 @@ export class RoadGraph {
   nearestNode(x: number, z: number, maxDistance = Infinity): RoadGraphNode | null {
     let best: RoadGraphNode | null = null;
     let bestD2 = maxDistance * maxDistance;
-    for (const node of this.nodes.values()) {
+    for (const node of Array.from(this.nodes.values())) {
       const dx = node.x - x;
       const dz = node.z - z;
       const d2 = dx * dx + dz * dz;
