@@ -11,6 +11,7 @@ const ENDPOINTS = [
   "https://overpass.private.coffee/api/interpreter",
   "https://overpass-api.de/api/interpreter",
 ];
+const NON_DRIVABLE = new Set(["footway", "path", "pedestrian", "cycleway", "steps", "corridor", "bridleway"]);
 
 const argv = process.argv.slice(2);
 const outArg = argv.indexOf("--out");
@@ -91,7 +92,6 @@ function normalize(raw) {
   const roads = [];
   const buildings = [];
   const pois = [];
-  const nodeCoords = new Map();
 
   for (const el of raw.elements || []) {
     if (el.type === "way" && el.tags?.highway && Array.isArray(el.geometry) && el.geometry.length >= 2) {
@@ -108,9 +108,6 @@ function normalize(raw) {
         nodeIds: Array.isArray(el.nodes) ? el.nodes : [],
         tags: cleanTags(el.tags),
       });
-      if (Array.isArray(el.nodes)) {
-        for (let i = 0; i < Math.min(el.nodes.length, points.length); i++) nodeCoords.set(el.nodes[i], points[i]);
-      }
     } else if (el.type === "way" && el.tags?.building && Array.isArray(el.geometry) && el.geometry.length >= 4) {
       const footprint = el.geometry.map(p => project(p.lat, p.lon));
       buildings.push({
@@ -129,6 +126,7 @@ function normalize(raw) {
   const graphNodes = new Map();
   const graphEdges = [];
   for (const road of roads) {
+    if (NON_DRIVABLE.has(road.highway)) continue;
     for (let i = 0; i < road.points.length - 1; i++) {
       const a = road.points[i], b = road.points[i + 1];
       const aid = road.nodeIds[i] != null ? `n${road.nodeIds[i]}` : `${road.id}:${i}`;
@@ -207,7 +205,7 @@ async function main() {
   }, null, 2));
 
   console.log(`Wrote ${chunks.size} chunks to ${outDir}`);
-  console.log(`${data.roads.length} roads · ${data.buildings.length} buildings · ${data.graph.nodes.length} graph nodes`);
+  console.log(`${data.roads.length} roads · ${data.buildings.length} buildings · ${data.graph.nodes.length} drivable graph nodes`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
