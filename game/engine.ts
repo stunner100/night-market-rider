@@ -5,6 +5,7 @@ import { makeOrder, saveBoard, useGame } from "./store";
 import { GameAudio } from "./audio";
 import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
+import { AccraWorldRuntime } from "./world/accra-runtime";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -57,6 +58,11 @@ export class Engine {
   isMobile = false;
   quality: "high" | "low";
   camPos = new THREE.Vector3(0, 5, -28);
+  osmWorld: AccraWorldRuntime;
+  osmActive = false;
+  private _osmRoute: { x: number; z: number }[] = [];
+  private _osmRouteTarget = "";
+  private _osmRouteAt = 0;
   private _bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private _fuelWarned = false;
 
@@ -70,7 +76,7 @@ export class Engine {
     // HDR tone mapping for photorealistic lighting
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.25;
-    this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 600);
+    this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1200);
     this.scene.background = new THREE.Color(0x87ceeb);
 
     // Stylized Tropical Sky Dome
@@ -84,6 +90,7 @@ export class Engine {
     this.scene.add(this.skyDome);
 
     this.world = buildWorld(this.scene, this.isMobile);
+    this.osmWorld = new AccraWorldRuntime(this.scene, this.isMobile);
     this.rig = buildRider();
     this.scene.add(this.rig.group);
     // attach world headlight to rig
@@ -100,6 +107,34 @@ export class Engine {
     window.addEventListener("resize", this.resize);
     this.bindKeys();
     this.loop();
+    void this.initializeAccraWorld();
+  }
+
+  private async initializeAccraWorld() {
+    const available = await this.osmWorld.initialize();
+    if (!available || !this.running) return;
+    await this.osmWorld.prime(this.px, this.pz);
+    if (!this.osmWorld.ready || !this.running) return;
+
+    // Preserve mission markers while hiding the old handcrafted city.
+    this.scene.attach(this.world.pickupMarker);
+    this.scene.attach(this.world.dropMarker);
+    this.scene.attach(this.world.arrowHelper);
+    this.world.group.visible = false;
+
+    // Do not collide with invisible fallback actors once the real map is active.
+    this.world.traffic.length = 0;
+    this.world.peds.length = 0;
+    this.world.ramps.length = 0;
+    this.world.potholes.length = 0;
+    this.world.coins.length = 0;
+    this.world.fuelStations.length = 0;
+    this.world.colliders.length = 0;
+
+    const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
+    if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
+    this.osmActive = true;
+    useGame.getState().pushToast("🗺️ Real Accra map loaded");
   }
 
   resize = () => {
@@ -191,6 +226,10 @@ export class Engine {
     this.audio.setPaused(false);
     this._fuelWarned = false;
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0;
+    if (this.osmActive) {
+      const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
+      if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
+    }
     this.nightF = 0; this.orderCollisions = 0;
     this.clearNPCs();
     this.countdownT = 3.2;
@@ -201,6 +240,14 @@ export class Engine {
   offerNext() {
     const s = useGame.getState();
     const order = makeOrder(s.orderIndex);
+    if (this.osmActive) {
+      const pickup = this.osmWorld.nearestRoadPoint(order.pickupX, order.pickupZ, 180);
+      const drop = this.osmWorld.nearestRoadPoint(order.dropX, order.dropZ, 180);
+      if (pickup) { order.pickupX = pickup.x; order.pickupZ = pickup.z; }
+      if (drop) { order.dropX = drop.x; order.dropZ = drop.z; }
+    }
+    this._osmRouteTarget = "";
+    this._osmRoute.length = 0;
     s.set({ phase: "offer", order, timeLeft: order.timeTotal, banner: null });
     this.world.setMarkers({ x: order.pickupX, z: order.pickupZ }, null, "offer");
     this.spawnVendor(order);
@@ -332,6 +379,7 @@ export class Engine {
   }
 
   onRoad(x: number, z: number) {
+    if (this.osmActive) return this.osmWorld.isOnRoad(x, z, 1.2);
     if (Math.abs(x) < 6.8 || Math.abs(z) < 6.8) return true;
     if (Math.abs(Math.abs(x) - 60) < 5.4 && Math.abs(z) < 66) return true;
     if (Math.abs(Math.abs(z) - 60) < 5.4 && Math.abs(x) < 66) return true;
@@ -497,8 +545,22 @@ export class Engine {
     }
     const nx = this.px + Math.sin(this.heading) * this.speed * dt;
     const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
-    this.px = THREE.MathUtils.clamp(nx, -98, 98);
-    this.pz = THREE.MathUtils.clamp(nz, -98, 98);
+    if (this.osmActive) {
+      this.px = THREE.MathUtils.clamp(nx, -2500, 3800);
+      this.pz = THREE.MathUtils.clamp(nz, -3200, 1600);
+    } else {
+      this.px = THREE.MathUtils.clamp(nx, -98, 98);
+      this.pz = THREE.MathUtils.clamp(nz, -98, 98);
+    }
+
+    if (this.osmActive && riding && this.crashCool <= 0) {
+      const hit = this.osmWorld.collidesBuilding(this.px, this.pz, 0.9);
+      if (hit) {
+        this.px -= Math.sin(this.heading) * this.speed * dt * 1.5;
+        this.pz -= Math.cos(this.heading) * this.speed * dt * 1.5;
+        this.crash(`💥 Collided with ${hit}! Easy oo.`);
+      }
+    }
 
     // ramps & potholes
     this.crashCool = Math.max(0, this.crashCool - dt);
@@ -732,6 +794,7 @@ export class Engine {
     }
 
     const t = performance.now() / 1000;
+    if (this.osmActive) void this.osmWorld.update(this.px, this.pz);
     this.world.update(dt, t, this.nightF, this.px, this.pz);
     this.animateNPCs(t, phase, dt);
     this.syncRig(dt, t, dt);
@@ -809,16 +872,48 @@ export class Engine {
     if (!show || !o) return;
     const tx = phase === "toDropoff" ? o.dropX : o.pickupX;
     const tz = phase === "toDropoff" ? o.dropZ : o.pickupZ;
-    const dx = tx - this.px, dz = tz - this.pz;
-    const dist = Math.hypot(dx, dz);
-    const ang = Math.atan2(dx, dz);
-    const n = this.chevrons.length;
-    for (let i = 0; i < n; i++) {
-      const d = 6 + i * 5;
-      if (d > dist - 3) { this.chevrons[i].visible = false; continue; }
-      this.chevrons[i].visible = true;
-      this.chevrons[i].position.set(this.px + Math.sin(ang) * d, 0.7 + Math.sin(performance.now() / 300 + i) * 0.15, this.pz + Math.cos(ang) * d);
-      this.chevrons[i].rotation.z = -ang;
+
+    if (this.osmActive) {
+      const now = performance.now();
+      const targetKey = `${phase}:${tx.toFixed(1)}:${tz.toFixed(1)}`;
+      if (targetKey !== this._osmRouteTarget || now - this._osmRouteAt > 900) {
+        this._osmRoute = this.osmWorld.route({ x: this.px, z: this.pz }, { x: tx, z: tz });
+        this._osmRouteTarget = targetKey;
+        this._osmRouteAt = now;
+      }
+      const route = this._osmRoute;
+      const pointAt = (wanted: number) => {
+        let walked = 0;
+        for (let j = 0; j < route.length - 1; j++) {
+          const a = route[j], b = route[j + 1];
+          const len = Math.hypot(b.x - a.x, b.z - a.z);
+          if (walked + len >= wanted) {
+            const u = len > 0 ? (wanted - walked) / len : 0;
+            return { x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u, ang: Math.atan2(b.x - a.x, b.z - a.z) };
+          }
+          walked += len;
+        }
+        return null;
+      };
+      for (let i = 0; i < this.chevrons.length; i++) {
+        const p = pointAt(7 + i * 7);
+        if (!p) { this.chevrons[i].visible = false; continue; }
+        this.chevrons[i].visible = true;
+        this.chevrons[i].position.set(p.x, 0.7 + Math.sin(now / 300 + i) * 0.15, p.z);
+        this.chevrons[i].rotation.z = -p.ang;
+      }
+    } else {
+      const dx = tx - this.px, dz = tz - this.pz;
+      const dist = Math.hypot(dx, dz);
+      const ang = Math.atan2(dx, dz);
+      const n = this.chevrons.length;
+      for (let i = 0; i < n; i++) {
+        const d = 6 + i * 5;
+        if (d > dist - 3) { this.chevrons[i].visible = false; continue; }
+        this.chevrons[i].visible = true;
+        this.chevrons[i].position.set(this.px + Math.sin(ang) * d, 0.7 + Math.sin(performance.now() / 300 + i) * 0.15, this.pz + Math.cos(ang) * d);
+        this.chevrons[i].rotation.z = -ang;
+      }
     }
     if (this.targetLabel) this.targetLabel.position.y = 9 + Math.sin(performance.now() / 400) * 0.5;
   }
@@ -831,6 +926,7 @@ export class Engine {
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
 
     if (this.skyDome) {
+      this.skyDome.position.set(this.px, 0, this.pz);
       this.skyDome.rotation.y = performance.now() * 0.00003;
       (this.skyDome.material as THREE.MeshBasicMaterial).color.copy(_skyResult);
     }
@@ -839,7 +935,7 @@ export class Engine {
     const sunX = 70 + night * 20;
     const sunY = Math.max(22, 95 - night * 70);
     const sunZ = 40 - night * 30;
-    this.world.sun.position.set(sunX, sunY, sunZ);
+    this.world.sun.position.set((this.osmActive ? this.px : 0) + sunX, sunY, (this.osmActive ? this.pz : 0) + sunZ);
     this.world.sun.intensity = 2.4 - night * 1.9;
     this.world.sun.color.setHSL(0.1 - night * 0.05, 0.7, 0.75 - night * 0.25);
     this.world.hemi.intensity = 0.95 - night * 0.6;
@@ -901,6 +997,7 @@ export class Engine {
     window.removeEventListener("keyup", this._onKeyUp);
     document.removeEventListener("visibilitychange", this._onVis);
     this.audio.dispose();
+    this.osmWorld.dispose();
     // dispose sky dome
     if (this.skyDome) {
       this.skyDome.geometry.dispose();

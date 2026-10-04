@@ -52,6 +52,28 @@ export default function GameClient() {
     <div id="game-root">
       <canvas id="game-canvas" ref={canvasRef} />
       <UI ready={ready} progress={progress} />
+      <a
+        href="https://www.openstreetmap.org/copyright"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="OpenStreetMap attribution"
+        style={{
+          position: "fixed",
+          right: 8,
+          bottom: 6,
+          zIndex: 70,
+          color: "rgba(255,255,255,.68)",
+          background: "rgba(0,0,0,.38)",
+          padding: "3px 6px",
+          borderRadius: 4,
+          fontSize: 10,
+          lineHeight: 1.2,
+          textDecoration: "none",
+          pointerEvents: "auto",
+        }}
+      >
+        Map data © OpenStreetMap contributors
+      </a>
     </div>
   );
 }

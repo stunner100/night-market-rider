@@ -1,0 +1,1748 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-04T20:46:27.482Z",
+  "source": "OpenStreetMap via Overpass API",
+  "attribution": "Map data © OpenStreetMap contributors",
+  "license": "ODbL-1.0",
+  "origin": {
+    "lat": 5.6425,
+    "lon": -0.18628,
+    "name": "UG Night Market"
+  },
+  "bbox": {
+    "south": 5.638,
+    "west": -0.1915,
+    "north": 5.6645,
+    "east": -0.1625
+  },
+  "chunkSize": 256,
+  "counts": {
+    "roads": 1269,
+    "buildings": 3155,
+    "pois": 195,
+    "graphNodes": 5658,
+    "graphEdges": 11639
+  },
+  "chunks": [
+    {
+      "key": "6_2",
+      "cx": 6,
+      "cz": 2,
+      "roads": 12,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "6_1",
+      "cx": 6,
+      "cz": 1,
+      "roads": 27,
+      "buildings": 13,
+      "pois": 5
+    },
+    {
+      "key": "7_1",
+      "cx": 7,
+      "cz": 1,
+      "roads": 33,
+      "buildings": 23,
+      "pois": 5
+    },
+    {
+      "key": "8_0",
+      "cx": 8,
+      "cz": 0,
+      "roads": 53,
+      "buildings": 38,
+      "pois": 6
+    },
+    {
+      "key": "9_0",
+      "cx": 9,
+      "cz": 0,
+      "roads": 58,
+      "buildings": 57,
+      "pois": 4
+    },
+    {
+      "key": "10_0",
+      "cx": 10,
+      "cz": 0,
+      "roads": 35,
+      "buildings": 2,
+      "pois": 7
+    },
+    {
+      "key": "7_-7",
+      "cx": 7,
+      "cz": -7,
+      "roads": 32,
+      "buildings": 35,
+      "pois": 2
+    },
+    {
+      "key": "7_-6",
+      "cx": 7,
+      "cz": -6,
+      "roads": 55,
+      "buildings": 26,
+      "pois": 1
+    },
+    {
+      "key": "7_-5",
+      "cx": 7,
+      "cz": -5,
+      "roads": 64,
+      "buildings": 24,
+      "pois": 1
+    },
+    {
+      "key": "7_-4",
+      "cx": 7,
+      "cz": -4,
+      "roads": 33,
+      "buildings": 37,
+      "pois": 0
+    },
+    {
+      "key": "7_-3",
+      "cx": 7,
+      "cz": -3,
+      "roads": 48,
+      "buildings": 39,
+      "pois": 2
+    },
+    {
+      "key": "7_-2",
+      "cx": 7,
+      "cz": -2,
+      "roads": 54,
+      "buildings": 31,
+      "pois": 4
+    },
+    {
+      "key": "7_-1",
+      "cx": 7,
+      "cz": -1,
+      "roads": 92,
+      "buildings": 20,
+      "pois": 1
+    },
+    {
+      "key": "7_0",
+      "cx": 7,
+      "cz": 0,
+      "roads": 42,
+      "buildings": 31,
+      "pois": 2
+    },
+    {
+      "key": "9_-8",
+      "cx": 9,
+      "cz": -8,
+      "roads": 80,
+      "buildings": 45,
+      "pois": 3
+    },
+    {
+      "key": "10_-8",
+      "cx": 10,
+      "cz": -8,
+      "roads": 39,
+      "buildings": 7,
+      "pois": 0
+    },
+    {
+      "key": "11_-8",
+      "cx": 11,
+      "cz": -8,
+      "roads": 15,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "12_-8",
+      "cx": 12,
+      "cz": -8,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "9_-10",
+      "cx": 9,
+      "cz": -10,
+      "roads": 16,
+      "buildings": 71,
+      "pois": 0
+    },
+    {
+      "key": "10_-10",
+      "cx": 10,
+      "cz": -10,
+      "roads": 8,
+      "buildings": 25,
+      "pois": 0
+    },
+    {
+      "key": "9_-9",
+      "cx": 9,
+      "cz": -9,
+      "roads": 29,
+      "buildings": 72,
+      "pois": 1
+    },
+    {
+      "key": "4_3",
+      "cx": 4,
+      "cz": 3,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "4_2",
+      "cx": 4,
+      "cz": 2,
+      "roads": 12,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "4_1",
+      "cx": 4,
+      "cz": 1,
+      "roads": 20,
+      "buildings": 47,
+      "pois": 1
+    },
+    {
+      "key": "3_1",
+      "cx": 3,
+      "cz": 1,
+      "roads": 82,
+      "buildings": 10,
+      "pois": 1
+    },
+    {
+      "key": "7_2",
+      "cx": 7,
+      "cz": 2,
+      "roads": 18,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "8_3",
+      "cx": 8,
+      "cz": 3,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "8_2",
+      "cx": 8,
+      "cz": 2,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "8_1",
+      "cx": 8,
+      "cz": 1,
+      "roads": 11,
+      "buildings": 61,
+      "pois": 1
+    },
+    {
+      "key": "9_4",
+      "cx": 9,
+      "cz": 4,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "9_3",
+      "cx": 9,
+      "cz": 3,
+      "roads": 12,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "9_2",
+      "cx": 9,
+      "cz": 2,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "9_1",
+      "cx": 9,
+      "cz": 1,
+      "roads": 7,
+      "buildings": 50,
+      "pois": 0
+    },
+    {
+      "key": "10_1",
+      "cx": 10,
+      "cz": 1,
+      "roads": 20,
+      "buildings": 17,
+      "pois": 1
+    },
+    {
+      "key": "10_2",
+      "cx": 10,
+      "cz": 2,
+      "roads": 6,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "10_3",
+      "cx": 10,
+      "cz": 3,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-5",
+      "cx": -3,
+      "cz": -5,
+      "roads": 23,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "-4_-5",
+      "cx": -4,
+      "cz": -5,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-4_-4",
+      "cx": -4,
+      "cz": -4,
+      "roads": 16,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-4",
+      "cx": -3,
+      "cz": -4,
+      "roads": 24,
+      "buildings": 4,
+      "pois": 0
+    },
+    {
+      "key": "-3_-3",
+      "cx": -3,
+      "cz": -3,
+      "roads": 20,
+      "buildings": 8,
+      "pois": 0
+    },
+    {
+      "key": "1_1",
+      "cx": 1,
+      "cz": 1,
+      "roads": 70,
+      "buildings": 2,
+      "pois": 1
+    },
+    {
+      "key": "0_1",
+      "cx": 0,
+      "cz": 1,
+      "roads": 65,
+      "buildings": 2,
+      "pois": 1
+    },
+    {
+      "key": "2_0",
+      "cx": 2,
+      "cz": 0,
+      "roads": 105,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "1_0",
+      "cx": 1,
+      "cz": 0,
+      "roads": 40,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "0_-1",
+      "cx": 0,
+      "cz": -1,
+      "roads": 117,
+      "buildings": 5,
+      "pois": 11
+    },
+    {
+      "key": "0_-4",
+      "cx": 0,
+      "cz": -4,
+      "roads": 68,
+      "buildings": 32,
+      "pois": 10
+    },
+    {
+      "key": "1_-4",
+      "cx": 1,
+      "cz": -4,
+      "roads": 85,
+      "buildings": 31,
+      "pois": 3
+    },
+    {
+      "key": "-1_-1",
+      "cx": -1,
+      "cz": -1,
+      "roads": 57,
+      "buildings": 13,
+      "pois": 2
+    },
+    {
+      "key": "-2_-1",
+      "cx": -2,
+      "cz": -1,
+      "roads": 31,
+      "buildings": 12,
+      "pois": 0
+    },
+    {
+      "key": "-2_-6",
+      "cx": -2,
+      "cz": -6,
+      "roads": 52,
+      "buildings": 15,
+      "pois": 0
+    },
+    {
+      "key": "-1_-6",
+      "cx": -1,
+      "cz": -6,
+      "roads": 30,
+      "buildings": 15,
+      "pois": 0
+    },
+    {
+      "key": "0_-6",
+      "cx": 0,
+      "cz": -6,
+      "roads": 46,
+      "buildings": 11,
+      "pois": 0
+    },
+    {
+      "key": "11_-10",
+      "cx": 11,
+      "cz": -10,
+      "roads": 2,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "10_-11",
+      "cx": 10,
+      "cz": -11,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "10_-9",
+      "cx": 10,
+      "cz": -9,
+      "roads": 2,
+      "buildings": 12,
+      "pois": 0
+    },
+    {
+      "key": "0_-5",
+      "cx": 0,
+      "cz": -5,
+      "roads": 42,
+      "buildings": 11,
+      "pois": 3
+    },
+    {
+      "key": "-1_-5",
+      "cx": -1,
+      "cz": -5,
+      "roads": 49,
+      "buildings": 8,
+      "pois": 4
+    },
+    {
+      "key": "-2_-5",
+      "cx": -2,
+      "cz": -5,
+      "roads": 63,
+      "buildings": 11,
+      "pois": 1
+    },
+    {
+      "key": "-2_-4",
+      "cx": -2,
+      "cz": -4,
+      "roads": 81,
+      "buildings": 32,
+      "pois": 6
+    },
+    {
+      "key": "-2_-3",
+      "cx": -2,
+      "cz": -3,
+      "roads": 34,
+      "buildings": 20,
+      "pois": 1
+    },
+    {
+      "key": "-2_-2",
+      "cx": -2,
+      "cz": -2,
+      "roads": 33,
+      "buildings": 20,
+      "pois": 1
+    },
+    {
+      "key": "5_2",
+      "cx": 5,
+      "cz": 2,
+      "roads": 3,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "5_1",
+      "cx": 5,
+      "cz": 1,
+      "roads": 32,
+      "buildings": 17,
+      "pois": 0
+    },
+    {
+      "key": "7_3",
+      "cx": 7,
+      "cz": 3,
+      "roads": 3,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "8_4",
+      "cx": 8,
+      "cz": 4,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_-4",
+      "cx": 2,
+      "cz": -4,
+      "roads": 129,
+      "buildings": 29,
+      "pois": 3
+    },
+    {
+      "key": "2_-5",
+      "cx": 2,
+      "cz": -5,
+      "roads": 47,
+      "buildings": 21,
+      "pois": 5
+    },
+    {
+      "key": "2_-6",
+      "cx": 2,
+      "cz": -6,
+      "roads": 51,
+      "buildings": 16,
+      "pois": 1
+    },
+    {
+      "key": "8_-10",
+      "cx": 8,
+      "cz": -10,
+      "roads": 15,
+      "buildings": 80,
+      "pois": 0
+    },
+    {
+      "key": "8_-11",
+      "cx": 8,
+      "cz": -11,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "7_-11",
+      "cx": 7,
+      "cz": -11,
+      "roads": 2,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "7_-10",
+      "cx": 7,
+      "cz": -10,
+      "roads": 9,
+      "buildings": 4,
+      "pois": 0
+    },
+    {
+      "key": "4_0",
+      "cx": 4,
+      "cz": 0,
+      "roads": 49,
+      "buildings": 74,
+      "pois": 8
+    },
+    {
+      "key": "6_0",
+      "cx": 6,
+      "cz": 0,
+      "roads": 72,
+      "buildings": 160,
+      "pois": 5
+    },
+    {
+      "key": "5_0",
+      "cx": 5,
+      "cz": 0,
+      "roads": 67,
+      "buildings": 112,
+      "pois": 11
+    },
+    {
+      "key": "1_-5",
+      "cx": 1,
+      "cz": -5,
+      "roads": 71,
+      "buildings": 10,
+      "pois": 2
+    },
+    {
+      "key": "1_-6",
+      "cx": 1,
+      "cz": -6,
+      "roads": 38,
+      "buildings": 17,
+      "pois": 1
+    },
+    {
+      "key": "1_-7",
+      "cx": 1,
+      "cz": -7,
+      "roads": 16,
+      "buildings": 20,
+      "pois": 0
+    },
+    {
+      "key": "1_-8",
+      "cx": 1,
+      "cz": -8,
+      "roads": 4,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "1_-9",
+      "cx": 1,
+      "cz": -9,
+      "roads": 18,
+      "buildings": 4,
+      "pois": 0
+    },
+    {
+      "key": "3_-4",
+      "cx": 3,
+      "cz": -4,
+      "roads": 100,
+      "buildings": 11,
+      "pois": 0
+    },
+    {
+      "key": "5_-5",
+      "cx": 5,
+      "cz": -5,
+      "roads": 49,
+      "buildings": 30,
+      "pois": 0
+    },
+    {
+      "key": "4_-5",
+      "cx": 4,
+      "cz": -5,
+      "roads": 71,
+      "buildings": 37,
+      "pois": 0
+    },
+    {
+      "key": "4_-4",
+      "cx": 4,
+      "cz": -4,
+      "roads": 153,
+      "buildings": 20,
+      "pois": 0
+    },
+    {
+      "key": "3_-11",
+      "cx": 3,
+      "cz": -11,
+      "roads": 2,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "3_-10",
+      "cx": 3,
+      "cz": -10,
+      "roads": 11,
+      "buildings": 3,
+      "pois": 2
+    },
+    {
+      "key": "1_2",
+      "cx": 1,
+      "cz": 2,
+      "roads": 6,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_2",
+      "cx": 2,
+      "cz": 2,
+      "roads": 16,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "10_-4",
+      "cx": 10,
+      "cz": -4,
+      "roads": 20,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "10_-5",
+      "cx": 10,
+      "cz": -5,
+      "roads": 22,
+      "buildings": 14,
+      "pois": 0
+    },
+    {
+      "key": "11_-5",
+      "cx": 11,
+      "cz": -5,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "11_-6",
+      "cx": 11,
+      "cz": -6,
+      "roads": 7,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "12_-6",
+      "cx": 12,
+      "cz": -6,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "13_-6",
+      "cx": 13,
+      "cz": -6,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_1",
+      "cx": 2,
+      "cz": 1,
+      "roads": 47,
+      "buildings": 5,
+      "pois": 0
+    },
+    {
+      "key": "2_-3",
+      "cx": 2,
+      "cz": -3,
+      "roads": 106,
+      "buildings": 26,
+      "pois": 5
+    },
+    {
+      "key": "1_-3",
+      "cx": 1,
+      "cz": -3,
+      "roads": 82,
+      "buildings": 14,
+      "pois": 1
+    },
+    {
+      "key": "10_-2",
+      "cx": 10,
+      "cz": -2,
+      "roads": 4,
+      "buildings": 23,
+      "pois": 0
+    },
+    {
+      "key": "6_-8",
+      "cx": 6,
+      "cz": -8,
+      "roads": 36,
+      "buildings": 9,
+      "pois": 0
+    },
+    {
+      "key": "6_-9",
+      "cx": 6,
+      "cz": -9,
+      "roads": 30,
+      "buildings": 14,
+      "pois": 0
+    },
+    {
+      "key": "6_-10",
+      "cx": 6,
+      "cz": -10,
+      "roads": 17,
+      "buildings": 9,
+      "pois": 0
+    },
+    {
+      "key": "10_-1",
+      "cx": 10,
+      "cz": -1,
+      "roads": 12,
+      "buildings": 22,
+      "pois": 1
+    },
+    {
+      "key": "9_-1",
+      "cx": 9,
+      "cz": -1,
+      "roads": 85,
+      "buildings": 147,
+      "pois": 0
+    },
+    {
+      "key": "9_-2",
+      "cx": 9,
+      "cz": -2,
+      "roads": 32,
+      "buildings": 47,
+      "pois": 1
+    },
+    {
+      "key": "8_-2",
+      "cx": 8,
+      "cz": -2,
+      "roads": 35,
+      "buildings": 15,
+      "pois": 0
+    },
+    {
+      "key": "8_-1",
+      "cx": 8,
+      "cz": -1,
+      "roads": 52,
+      "buildings": 14,
+      "pois": 0
+    },
+    {
+      "key": "-1_-4",
+      "cx": -1,
+      "cz": -4,
+      "roads": 114,
+      "buildings": 30,
+      "pois": 7
+    },
+    {
+      "key": "1_-2",
+      "cx": 1,
+      "cz": -2,
+      "roads": 30,
+      "buildings": 6,
+      "pois": 0
+    },
+    {
+      "key": "0_-2",
+      "cx": 0,
+      "cz": -2,
+      "roads": 61,
+      "buildings": 9,
+      "pois": 1
+    },
+    {
+      "key": "-1_-3",
+      "cx": -1,
+      "cz": -3,
+      "roads": 39,
+      "buildings": 10,
+      "pois": 2
+    },
+    {
+      "key": "0_-3",
+      "cx": 0,
+      "cz": -3,
+      "roads": 64,
+      "buildings": 19,
+      "pois": 3
+    },
+    {
+      "key": "-1_-2",
+      "cx": -1,
+      "cz": -2,
+      "roads": 64,
+      "buildings": 12,
+      "pois": 7
+    },
+    {
+      "key": "-4_-3",
+      "cx": -4,
+      "cz": -3,
+      "roads": 20,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "6_-5",
+      "cx": 6,
+      "cz": -5,
+      "roads": 7,
+      "buildings": 4,
+      "pois": 0
+    },
+    {
+      "key": "6_-4",
+      "cx": 6,
+      "cz": -4,
+      "roads": 21,
+      "buildings": 8,
+      "pois": 0
+    },
+    {
+      "key": "5_-3",
+      "cx": 5,
+      "cz": -3,
+      "roads": 79,
+      "buildings": 9,
+      "pois": 1
+    },
+    {
+      "key": "5_-2",
+      "cx": 5,
+      "cz": -2,
+      "roads": 92,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "4_4",
+      "cx": 4,
+      "cz": 4,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "3_3",
+      "cx": 3,
+      "cz": 3,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "3_2",
+      "cx": 3,
+      "cz": 2,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "3_0",
+      "cx": 3,
+      "cz": 0,
+      "roads": 109,
+      "buildings": 31,
+      "pois": 6
+    },
+    {
+      "key": "7_-8",
+      "cx": 7,
+      "cz": -8,
+      "roads": 90,
+      "buildings": 18,
+      "pois": 2
+    },
+    {
+      "key": "8_-8",
+      "cx": 8,
+      "cz": -8,
+      "roads": 104,
+      "buildings": 31,
+      "pois": 4
+    },
+    {
+      "key": "9_-4",
+      "cx": 9,
+      "cz": -4,
+      "roads": 61,
+      "buildings": 33,
+      "pois": 0
+    },
+    {
+      "key": "8_-4",
+      "cx": 8,
+      "cz": -4,
+      "roads": 22,
+      "buildings": 55,
+      "pois": 0
+    },
+    {
+      "key": "8_-5",
+      "cx": 8,
+      "cz": -5,
+      "roads": 35,
+      "buildings": 39,
+      "pois": 1
+    },
+    {
+      "key": "8_-3",
+      "cx": 8,
+      "cz": -3,
+      "roads": 13,
+      "buildings": 27,
+      "pois": 0
+    },
+    {
+      "key": "9_-3",
+      "cx": 9,
+      "cz": -3,
+      "roads": 40,
+      "buildings": 71,
+      "pois": 0
+    },
+    {
+      "key": "6_-3",
+      "cx": 6,
+      "cz": -3,
+      "roads": 42,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "5_-4",
+      "cx": 5,
+      "cz": -4,
+      "roads": 87,
+      "buildings": 30,
+      "pois": 0
+    },
+    {
+      "key": "-1_-7",
+      "cx": -1,
+      "cz": -7,
+      "roads": 18,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "0_-7",
+      "cx": 0,
+      "cz": -7,
+      "roads": 15,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_-7",
+      "cx": 2,
+      "cz": -7,
+      "roads": 46,
+      "buildings": 16,
+      "pois": 3
+    },
+    {
+      "key": "2_-8",
+      "cx": 2,
+      "cz": -8,
+      "roads": 28,
+      "buildings": 1,
+      "pois": 1
+    },
+    {
+      "key": "3_-8",
+      "cx": 3,
+      "cz": -8,
+      "roads": 105,
+      "buildings": 3,
+      "pois": 4
+    },
+    {
+      "key": "-1_-8",
+      "cx": -1,
+      "cz": -8,
+      "roads": 29,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "0_-8",
+      "cx": 0,
+      "cz": -8,
+      "roads": 12,
+      "buildings": 3,
+      "pois": 0
+    },
+    {
+      "key": "0_2",
+      "cx": 0,
+      "cz": 2,
+      "roads": 5,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-1_2",
+      "cx": -1,
+      "cz": 2,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_2",
+      "cx": -2,
+      "cz": 2,
+      "roads": 14,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_3",
+      "cx": -2,
+      "cz": 3,
+      "roads": 2,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "6_-1",
+      "cx": 6,
+      "cz": -1,
+      "roads": 28,
+      "buildings": 11,
+      "pois": 1
+    },
+    {
+      "key": "8_-9",
+      "cx": 8,
+      "cz": -9,
+      "roads": 132,
+      "buildings": 16,
+      "pois": 0
+    },
+    {
+      "key": "9_-7",
+      "cx": 9,
+      "cz": -7,
+      "roads": 35,
+      "buildings": 78,
+      "pois": 0
+    },
+    {
+      "key": "10_-7",
+      "cx": 10,
+      "cz": -7,
+      "roads": 7,
+      "buildings": 6,
+      "pois": 0
+    },
+    {
+      "key": "10_-6",
+      "cx": 10,
+      "cz": -6,
+      "roads": 20,
+      "buildings": 27,
+      "pois": 0
+    },
+    {
+      "key": "9_-5",
+      "cx": 9,
+      "cz": -5,
+      "roads": 24,
+      "buildings": 31,
+      "pois": 1
+    },
+    {
+      "key": "9_-6",
+      "cx": 9,
+      "cz": -6,
+      "roads": 36,
+      "buildings": 42,
+      "pois": 0
+    },
+    {
+      "key": "8_-6",
+      "cx": 8,
+      "cz": -6,
+      "roads": 32,
+      "buildings": 18,
+      "pois": 0
+    },
+    {
+      "key": "-2_-7",
+      "cx": -2,
+      "cz": -7,
+      "roads": 43,
+      "buildings": 5,
+      "pois": 0
+    },
+    {
+      "key": "-3_-2",
+      "cx": -3,
+      "cz": -2,
+      "roads": 20,
+      "buildings": 3,
+      "pois": 0
+    },
+    {
+      "key": "-3_0",
+      "cx": -3,
+      "cz": 0,
+      "roads": 35,
+      "buildings": 6,
+      "pois": 0
+    },
+    {
+      "key": "-2_0",
+      "cx": -2,
+      "cz": 0,
+      "roads": 33,
+      "buildings": 27,
+      "pois": 0
+    },
+    {
+      "key": "-3_1",
+      "cx": -3,
+      "cz": 1,
+      "roads": 32,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "-6_-8",
+      "cx": -6,
+      "cz": -8,
+      "roads": 3,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-5_-8",
+      "cx": -5,
+      "cz": -8,
+      "roads": 5,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-4_-8",
+      "cx": -4,
+      "cz": -8,
+      "roads": 7,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-8",
+      "cx": -3,
+      "cz": -8,
+      "roads": 24,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_-8",
+      "cx": -2,
+      "cz": -8,
+      "roads": 45,
+      "buildings": 7,
+      "pois": 0
+    },
+    {
+      "key": "-3_-9",
+      "cx": -3,
+      "cz": -9,
+      "roads": 11,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_-9",
+      "cx": -2,
+      "cz": -9,
+      "roads": 10,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-10",
+      "cx": -3,
+      "cz": -10,
+      "roads": 11,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-11",
+      "cx": -3,
+      "cz": -11,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_-11",
+      "cx": -2,
+      "cz": -11,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_-10",
+      "cx": -2,
+      "cz": -10,
+      "roads": 15,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "4_-6",
+      "cx": 4,
+      "cz": -6,
+      "roads": 44,
+      "buildings": 22,
+      "pois": 0
+    },
+    {
+      "key": "-3_2",
+      "cx": -3,
+      "cz": 2,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-2_1",
+      "cx": -2,
+      "cz": 1,
+      "roads": 37,
+      "buildings": 11,
+      "pois": 0
+    },
+    {
+      "key": "-1_1",
+      "cx": -1,
+      "cz": 1,
+      "roads": 35,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "3_-2",
+      "cx": 3,
+      "cz": -2,
+      "roads": 28,
+      "buildings": 12,
+      "pois": 0
+    },
+    {
+      "key": "3_-3",
+      "cx": 3,
+      "cz": -3,
+      "roads": 66,
+      "buildings": 4,
+      "pois": 4
+    },
+    {
+      "key": "3_-5",
+      "cx": 3,
+      "cz": -5,
+      "roads": 40,
+      "buildings": 11,
+      "pois": 3
+    },
+    {
+      "key": "-4_0",
+      "cx": -4,
+      "cz": 0,
+      "roads": 7,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-5_0",
+      "cx": -5,
+      "cz": 0,
+      "roads": 3,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-6_0",
+      "cx": -6,
+      "cz": 0,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_-2",
+      "cx": 2,
+      "cz": -2,
+      "roads": 37,
+      "buildings": 7,
+      "pois": 0
+    },
+    {
+      "key": "3_-1",
+      "cx": 3,
+      "cz": -1,
+      "roads": 33,
+      "buildings": 20,
+      "pois": 0
+    },
+    {
+      "key": "0_0",
+      "cx": 0,
+      "cz": 0,
+      "roads": 52,
+      "buildings": 3,
+      "pois": 1
+    },
+    {
+      "key": "8_-7",
+      "cx": 8,
+      "cz": -7,
+      "roads": 49,
+      "buildings": 43,
+      "pois": 3
+    },
+    {
+      "key": "10_-3",
+      "cx": 10,
+      "cz": -3,
+      "roads": 15,
+      "buildings": 25,
+      "pois": 0
+    },
+    {
+      "key": "3_-7",
+      "cx": 3,
+      "cz": -7,
+      "roads": 8,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "3_-9",
+      "cx": 3,
+      "cz": -9,
+      "roads": 56,
+      "buildings": 3,
+      "pois": 0
+    },
+    {
+      "key": "4_-9",
+      "cx": 4,
+      "cz": -9,
+      "roads": 26,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "5_-9",
+      "cx": 5,
+      "cz": -9,
+      "roads": 30,
+      "buildings": 28,
+      "pois": 0
+    },
+    {
+      "key": "5_-10",
+      "cx": 5,
+      "cz": -10,
+      "roads": 45,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "4_-10",
+      "cx": 4,
+      "cz": -10,
+      "roads": 35,
+      "buildings": 8,
+      "pois": 0
+    },
+    {
+      "key": "-1_-11",
+      "cx": -1,
+      "cz": -11,
+      "roads": 1,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-7",
+      "cx": -3,
+      "cz": -7,
+      "roads": 17,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "4_-8",
+      "cx": 4,
+      "cz": -8,
+      "roads": 21,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "5_-8",
+      "cx": 5,
+      "cz": -8,
+      "roads": 15,
+      "buildings": 8,
+      "pois": 0
+    },
+    {
+      "key": "9_-11",
+      "cx": 9,
+      "cz": -11,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "6_-2",
+      "cx": 6,
+      "cz": -2,
+      "roads": 58,
+      "buildings": 9,
+      "pois": 1
+    },
+    {
+      "key": "7_-9",
+      "cx": 7,
+      "cz": -9,
+      "roads": 13,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-1_-10",
+      "cx": -1,
+      "cz": -10,
+      "roads": 5,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-1_-9",
+      "cx": -1,
+      "cz": -9,
+      "roads": 4,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "0_-9",
+      "cx": 0,
+      "cz": -9,
+      "roads": 8,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-1",
+      "cx": -3,
+      "cz": -1,
+      "roads": 25,
+      "buildings": 3,
+      "pois": 0
+    },
+    {
+      "key": "5_-1",
+      "cx": 5,
+      "cz": -1,
+      "roads": 89,
+      "buildings": 2,
+      "pois": 0
+    },
+    {
+      "key": "4_-1",
+      "cx": 4,
+      "cz": -1,
+      "roads": 56,
+      "buildings": 6,
+      "pois": 0
+    },
+    {
+      "key": "4_-2",
+      "cx": 4,
+      "cz": -2,
+      "roads": 50,
+      "buildings": 3,
+      "pois": 0
+    },
+    {
+      "key": "2_-1",
+      "cx": 2,
+      "cz": -1,
+      "roads": 12,
+      "buildings": 5,
+      "pois": 0
+    },
+    {
+      "key": "-1_0",
+      "cx": -1,
+      "cz": 0,
+      "roads": 34,
+      "buildings": 9,
+      "pois": 0
+    },
+    {
+      "key": "1_-1",
+      "cx": 1,
+      "cz": -1,
+      "roads": 1,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "0_-10",
+      "cx": 0,
+      "cz": -10,
+      "roads": 19,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_-9",
+      "cx": 2,
+      "cz": -9,
+      "roads": 14,
+      "buildings": 12,
+      "pois": 0
+    },
+    {
+      "key": "1_-10",
+      "cx": 1,
+      "cz": -10,
+      "roads": 7,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "2_-10",
+      "cx": 2,
+      "cz": -10,
+      "roads": 5,
+      "buildings": 10,
+      "pois": 0
+    },
+    {
+      "key": "6_-7",
+      "cx": 6,
+      "cz": -7,
+      "roads": 2,
+      "buildings": 2,
+      "pois": 1
+    },
+    {
+      "key": "4_-3",
+      "cx": 4,
+      "cz": -3,
+      "roads": 1,
+      "buildings": 4,
+      "pois": 0
+    },
+    {
+      "key": "3_-6",
+      "cx": 3,
+      "cz": -6,
+      "roads": 13,
+      "buildings": 1,
+      "pois": 0
+    },
+    {
+      "key": "5_-6",
+      "cx": 5,
+      "cz": -6,
+      "roads": 4,
+      "buildings": 7,
+      "pois": 0
+    },
+    {
+      "key": "6_-6",
+      "cx": 6,
+      "cz": -6,
+      "roads": 16,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "4_-7",
+      "cx": 4,
+      "cz": -7,
+      "roads": 7,
+      "buildings": 0,
+      "pois": 0
+    },
+    {
+      "key": "-3_-6",
+      "cx": -3,
+      "cz": -6,
+      "roads": 0,
+      "buildings": 1,
+      "pois": 0
+    }
+  ]
+}

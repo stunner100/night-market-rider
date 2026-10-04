@@ -1,0 +1,49 @@
+name: Bake Accra world
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [osm-accra-world]
+    paths:
+      - "scripts/osm/**"
+      - ".github/workflows/bake-accra.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: osm-accra-world
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Bake Legon to UPSA world
+        run: npm run world:bake:accra
+      - name: Show world manifest
+        run: cat public/world/accra/manifest.json
+      - name: Commit baked world assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/world/accra
+          if git diff --cached --quiet; then
+            echo "No world changes to commit"
+          else
+            git commit -m "Bake Accra OSM world assets"
+            git pull --rebase origin osm-accra-world
+            git push origin HEAD:osm-accra-world
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accra-world
+          path: public/world/accra
+          if-no-files-found: error
+          retention-days: 7

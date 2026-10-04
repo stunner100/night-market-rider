@@ -1,0 +1,41 @@
+name: Integrate Accra world
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [osm-accra-world]
+    paths:
+      - "scripts/osm/integrate-engine.mjs"
+      - ".github/workflows/integrate-accra.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: osm-accra-world
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply OSM engine integration
+        run: node scripts/osm/integrate-engine.mjs
+      - name: Build
+        run: npm run build
+      - name: Commit integrated engine
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add game/engine.ts
+          if git diff --cached --quiet; then
+            echo "No integration changes to commit"
+          else
+            git commit -m "Integrate real Accra world into game engine"
+            git push origin HEAD:osm-accra-world
+          fi
