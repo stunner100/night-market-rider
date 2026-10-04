@@ -1,0 +1,47 @@
+[
+  {
+    "id": "night-market",
+    "name": "Night Market",
+    "lat": 5.6425,
+    "lon": -0.18628,
+    "kind": "marketplace",
+    "x": 0,
+    "z": 0
+  },
+  {
+    "id": "okponglo",
+    "name": "Okponglo Roundabout",
+    "lat": 5.64077,
+    "lon": -0.18375,
+    "kind": "junction",
+    "x": 280.27370159892996,
+    "z": 192.582719072389
+  },
+  {
+    "id": "legon-traffic-light",
+    "name": "Legon Traffic Light",
+    "lat": 5.64055,
+    "lon": -0.17925,
+    "kind": "junction",
+    "x": 778.7842380397141,
+    "z": 217.0730070468719
+  },
+  {
+    "id": "legon-post-office",
+    "name": "Legon Post Office",
+    "lat": 5.6509,
+    "lon": -0.18763,
+    "kind": "poi",
+    "x": -149.55316093223402,
+    "z": -935.0837226634937
+  },
+  {
+    "id": "upsa",
+    "name": "UPSA",
+    "lat": 5.66155,
+    "lon": -0.16638,
+    "kind": "university",
+    "x": 2204.5243722603545,
+    "z": -2120.636299611863
+  }
+]
