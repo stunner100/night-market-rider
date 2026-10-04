@@ -10,6 +10,18 @@ interface LoadedChunk {
   group: THREE.Group;
 }
 
+function pointInPolygon(x: number, z: number, points: WorldPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i];
+    const b = points[j];
+    const crosses = ((a.z > z) !== (b.z > z)) &&
+      (x < (b.x - a.x) * (z - a.z) / ((b.z - a.z) || 1e-9) + a.x);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
 export class AccraWorldRuntime {
   readonly group = new THREE.Group();
   manifest: WorldManifest | null = null;
@@ -22,10 +34,20 @@ export class AccraWorldRuntime {
   private loading = new Map<string, Promise<void>>();
   private roadIndex = new Map<string, WorldRoad[]>();
   private destroyed = false;
+  private ground: THREE.Mesh;
 
   constructor(private scene: THREE.Scene, private mobile = false, private baseUrl = "/world/accra") {
     this.group.name = "accra-osm-world";
     this.group.visible = false;
+
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x6d8050, roughness: 0.98, metalness: 0 });
+    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = -0.02;
+    this.ground.receiveShadow = true;
+    this.ground.name = "accra-ground";
+    this.group.add(this.ground);
+
     scene.add(this.group);
   }
 
@@ -133,6 +155,31 @@ export class AccraWorldRuntime {
     return false;
   }
 
+  collidesBuilding(x: number, z: number, radius = 0.8): string | null {
+    const manifest = this.manifest;
+    if (!manifest) return null;
+    const at = chunkForPoint(x, z, manifest.chunkSize);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const chunk = this.loaded.get(chunkKey(at.cx + dx, at.cz + dz));
+        if (!chunk) continue;
+        for (const building of chunk.data.buildings) {
+          const points = building.footprint;
+          if (points.length < 3) continue;
+          if (pointInPolygon(x, z, points)) return building.tags?.name || "building";
+          for (let i = 0; i < points.length; i++) {
+            const a = points[i];
+            const b = points[(i + 1) % points.length];
+            if (distancePointToSegment(x, z, a.x, a.z, b.x, b.z) <= radius) {
+              return building.tags?.name || "building";
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   nearestRoadPoint(x: number, z: number, maxDistance = 50): WorldPoint | null {
     const manifest = this.manifest;
     if (!manifest) return null;
@@ -173,6 +220,10 @@ export class AccraWorldRuntime {
     for (const chunk of Array.from(this.loaded.values())) this.disposeChunk(chunk);
     this.loaded.clear();
     this.roadIndex.clear();
+    this.ground.geometry.dispose();
+    const material = this.ground.material;
+    if (Array.isArray(material)) material.forEach(m => m.dispose());
+    else material.dispose();
     this.scene.remove(this.group);
   }
 }
