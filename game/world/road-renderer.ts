@@ -21,6 +21,9 @@ function roadMaterial(highway: string): THREE.MeshStandardMaterial {
     color: ROAD_COLORS[highway] ?? 0x44474d,
     roughness: highway === "track" ? 0.98 : 0.9,
     metalness: 0.02,
+    // Keep road ribbons visible while we stream adjacent segments with mixed OSM
+    // directionality. The vertex winding is also corrected below so normals face up.
+    side: THREE.DoubleSide,
   });
 }
 
@@ -39,7 +42,9 @@ function segmentGeometry(ax: number, az: number, bx: number, bz: number, width: 
   ]);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex([0, 1, 2, 2, 1, 3]);
+  // Previous winding produced -Y normals, so MeshStandardMaterial culled the
+  // asphalt when viewed from the rider camera. Wind both triangles toward +Y.
+  geometry.setIndex([0, 2, 1, 2, 3, 1]);
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -66,7 +71,9 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
     geometries.forEach(g => g.dispose());
     if (!merged) continue;
     const mesh = new THREE.Mesh(merged, roadMaterial(highway));
-    mesh.position.y = 0.035;
+    // Lift the road slightly above the terrain to avoid z-fighting with the
+    // streamed Accra ground plane.
+    mesh.position.y = 0.055;
     mesh.receiveShadow = true;
     mesh.userData.roadClass = highway;
     group.add(mesh);
