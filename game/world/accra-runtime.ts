@@ -76,7 +76,7 @@ export class AccraWorldRuntime {
       }
     }
 
-    for (const [key, chunk] of this.loaded) {
+    for (const [key, chunk] of Array.from(this.loaded.entries())) {
       if (wanted.has(key)) continue;
       this.disposeChunk(chunk);
       this.loaded.delete(key);
@@ -170,7 +170,7 @@ export class AccraWorldRuntime {
 
   dispose(): void {
     this.destroyed = true;
-    for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
+    for (const chunk of Array.from(this.loaded.values())) this.disposeChunk(chunk);
     this.loaded.clear();
     this.roadIndex.clear();
     this.scene.remove(this.group);
