@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WorldBuilding } from "./types";
 
 const PALETTE = [0xd9cfbd, 0xcbbfa9, 0xd7d2c5, 0xb9b5aa, 0xd4c3a2, 0xc5c0b8, 0xe0d6c5];
@@ -23,8 +24,8 @@ function footprintShape(building: WorldBuilding): THREE.Shape | null {
 export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): THREE.Group {
   const group = new THREE.Group();
   group.name = "osm-buildings";
-  const materials = PALETTE.map(color => new THREE.MeshStandardMaterial({ color, roughness: 0.84, metalness: 0.02 }));
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0x7f6f60, roughness: 0.9 });
+  const facadeBuckets = PALETTE.map(() => [] as THREE.BufferGeometry[]);
+  const roofGeometries: THREE.BufferGeometry[] = [];
 
   for (const building of buildings) {
     const shape = footprintShape(building);
@@ -40,25 +41,42 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
     geometry.computeVertexNormals();
 
     const seed = hashInt(building.osmId ?? building.id.length * 2654435761);
-    const material = materials[Math.abs(seed) % materials.length];
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = !mobile;
-    mesh.receiveShadow = true;
-    mesh.userData.buildingId = building.id;
-    mesh.userData.sharedMaterial = true;
-    group.add(mesh);
+    facadeBuckets[Math.abs(seed) % PALETTE.length].push(geometry);
 
-    if (!mobile && height > 5.5 && building.footprint.length <= 12) {
-      const box = new THREE.Box3().setFromBufferAttribute(geometry.getAttribute("position") as THREE.BufferAttribute);
+    if (!mobile && height > 5.5 && building.footprint.length <= 12 && geometry.boundingBox) {
+      const box = geometry.boundingBox;
       const sx = Math.max(0.5, box.max.x - box.min.x);
       const sz = Math.max(0.5, box.max.z - box.min.z);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(sx * 0.94, 0.18, sz * 0.94), roofMat);
-      roof.position.set((box.min.x + box.max.x) * 0.5, height + 0.09, (box.min.z + box.max.z) * 0.5);
-      roof.castShadow = true;
-      roof.userData.sharedMaterial = true;
-      group.add(roof);
+      const roof = new THREE.BoxGeometry(sx * 0.94, 0.18, sz * 0.94);
+      roof.translate((box.min.x + box.max.x) * 0.5, height + 0.09, (box.min.z + box.max.z) * 0.5);
+      roofGeometries.push(roof);
     }
   }
+
+  facadeBuckets.forEach((geometries, index) => {
+    if (!geometries.length) return;
+    const merged = mergeGeometries(geometries, false);
+    geometries.forEach(g => g.dispose());
+    if (!merged) return;
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE[index], roughness: 0.84, metalness: 0.02 });
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.castShadow = !mobile;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  if (roofGeometries.length) {
+    const mergedRoofs = mergeGeometries(roofGeometries, false);
+    roofGeometries.forEach(g => g.dispose());
+    if (mergedRoofs) {
+      const roofMat = new THREE.MeshStandardMaterial({ color: 0x7f6f60, roughness: 0.9 });
+      const roofs = new THREE.Mesh(mergedRoofs, roofMat);
+      roofs.castShadow = true;
+      roofs.receiveShadow = true;
+      group.add(roofs);
+    }
+  }
+
   return group;
 }
 
