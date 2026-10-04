@@ -1,15 +1,16 @@
 import { create } from "zustand";
+import { latLonToWorld } from "./world/coordinates";
 
 export type Phase =
   | "loading"
   | "menu"
   | "countdown"
-  | "offer" // order offered, must accept
+  | "offer"
   | "toPickup"
   | "pickup"
   | "toDropoff"
   | "deliver"
-  | "delivered" // brief celebration
+  | "delivered"
   | "gameover";
 
 export interface Order {
@@ -46,8 +47,8 @@ interface GameState {
   ratingsCount: number;
   score: number;
   strikes: number;
-  boost: number; // 0..100
-  fuel: number; // 0..100
+  boost: number;
+  fuel: number;
   speedKmh: number;
   distM: number;
   turnHint: string;
@@ -64,13 +65,11 @@ interface GameState {
 
 let toastId = 1;
 
-// Client-side hydration (page is statically prerendered; never touch storage during SSR).
 if (typeof window !== "undefined") {
   try {
     const nm = window.localStorage.getItem("nm_name");
     const lb = JSON.parse(window.localStorage.getItem("nm_board") || "[]");
     if (nm || Array.isArray(lb)) {
-      // applied after store creation below; see hydrate below
       (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: unknown } }).__nm_hydrate = { nm, lb };
     }
   } catch { /* ignore */ }
@@ -136,34 +135,34 @@ const VENDORS = [
   { vendor: "Cold Store", food: "Chilled Drinks", emoji: "🥤" },
 ];
 const CUSTOMERS = ["Nana", "Ama", "Kwame", "Yaw", "Kojo", "Efya", "Kofi", "Abena"];
-const DROPOFFS = ["East Legon", "Legon Hall", "UPSA Hostel", "Madina Market", "Commonwealth Hall", "Okponglo", "Shiashie"];
 
-// Fixed, reachable pickup/dropoff pads spread across the map quadrants.
-const PADS = [
-  { x: -52, z: -48 }, // Legon vendor row
-  { x: 48, z: -52 }, // UPSA shops
-  { x: 56, z: 48 }, // East Legon restaurants
-  { x: -52, z: 52 }, // Madina stalls
-  { x: 0, z: -70 }, // campus gate
-  { x: 70, z: 0 }, // east road
-  { x: 0, z: 70 }, // madina road
-  { x: -70, z: 0 }, // legon road
-];
+const ACCRA_ORIGIN = { lat: 5.6425, lon: -0.18628 };
+const GEO_PADS = [
+  { name: "Night Market", lat: 5.6425, lon: -0.18628 },
+  { name: "Okponglo", lat: 5.64077, lon: -0.18375 },
+  { name: "Legon Traffic Light", lat: 5.64055, lon: -0.17925 },
+  { name: "Legon Post Office", lat: 5.65090, lon: -0.18763 },
+  { name: "UPSA", lat: 5.66155, lon: -0.16638 },
+].map(p => ({ ...p, ...latLonToWorld(p.lat, p.lon, ACCRA_ORIGIN) }));
 
 export function makeOrder(index: number): Order {
   const v = VENDORS[index % VENDORS.length];
-  const padA = PADS[index % PADS.length];
-  const padB = PADS[(index + 3) % PADS.length];
-  const distKm = 0.8 + ((index * 0.37) % 1.6);
-  const generous = index < 3 ? 1.5 : index < 7 ? 1.2 : 1.0;
-  const timeTotal = Math.round((70 + distKm * 55) * generous);
+  const padA = GEO_PADS[index % GEO_PADS.length];
+  let padB = GEO_PADS[(index + 2) % GEO_PADS.length];
+  if (padA === padB) padB = GEO_PADS[(index + 3) % GEO_PADS.length];
+
+  const directMetres = Math.hypot(padB.x - padA.x, padB.z - padA.z);
+  const distKm = Math.max(0.35, directMetres / 1000);
+  const generous = index < 3 ? 1.45 : index < 7 ? 1.2 : 1.0;
+  const timeTotal = Math.round((75 + distKm * 70) * generous);
+
   return {
     id: index + 1,
     vendor: v.vendor,
     food: v.food,
     emoji: v.emoji,
     customer: CUSTOMERS[index % CUSTOMERS.length],
-    dropoff: DROPOFFS[index % DROPOFFS.length],
+    dropoff: padB.name,
     reward: Math.round((5.5 + distKm * 2.4) * 100) / 100,
     xp: Math.round(500 + distKm * 250),
     timeTotal,
@@ -174,7 +173,6 @@ export function makeOrder(index: number): Order {
   };
 }
 
-// Apply client hydration captured above (client only).
 if (typeof window !== "undefined") {
   try {
     const h = (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: { name: string; score: number }[] } }).__nm_hydrate;
