@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { buildRoadGroup, disposeRoadGroup } from "./road-renderer";
 import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
+import { buildStreetDressingGroup, disposeStreetDressingGroup } from "./street-dressing";
 import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment } from "./coordinates";
 import { RoadGraph } from "./road-graph";
 import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, WorldPoint, WorldRoad } from "./types";
@@ -40,14 +41,13 @@ export class AccraWorldRuntime {
     this.group.name = "accra-osm-world";
     this.group.visible = false;
 
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x6d8050, roughness: 0.98, metalness: 0 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x75855c, roughness: 0.99, metalness: 0 });
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
-    this.ground.position.y = -0.02;
+    this.ground.position.y = -0.03;
     this.ground.receiveShadow = true;
     this.ground.name = "accra-ground";
     this.group.add(this.ground);
-
     scene.add(this.group);
   }
 
@@ -122,6 +122,7 @@ export class AccraWorldRuntime {
         group.name = `osm-chunk-${key}`;
         group.add(buildRoadGroup(data.roads, this.mobile));
         group.add(buildBuildingGroup(data.buildings, this.mobile));
+        group.add(buildStreetDressingGroup(data, this.mobile));
         this.group.add(group);
         this.loaded.set(key, { data, group });
         this.roadIndex.set(key, data.roads);
@@ -170,9 +171,7 @@ export class AccraWorldRuntime {
           for (let i = 0; i < points.length; i++) {
             const a = points[i];
             const b = points[(i + 1) % points.length];
-            if (distancePointToSegment(x, z, a.x, a.z, b.x, b.z) <= radius) {
-              return building.tags?.name || "building";
-            }
+            if (distancePointToSegment(x, z, a.x, a.z, b.x, b.z) <= radius) return building.tags?.name || "building";
           }
         }
       }
@@ -199,6 +198,24 @@ export class AccraWorldRuntime {
     return best;
   }
 
+  visibleRoads(x: number, z: number, radiusChunks = 1): WorldRoad[] {
+    const manifest = this.manifest;
+    if (!manifest) return [];
+    const at = chunkForPoint(x, z, manifest.chunkSize);
+    const roads: WorldRoad[] = [];
+    const seen = new Set<string>();
+    for (let dx = -radiusChunks; dx <= radiusChunks; dx++) {
+      for (let dz = -radiusChunks; dz <= radiusChunks; dz++) {
+        for (const road of this.roadIndex.get(chunkKey(at.cx + dx, at.cz + dz)) ?? []) {
+          if (seen.has(road.id)) continue;
+          seen.add(road.id);
+          roads.push(road);
+        }
+      }
+    }
+    return roads;
+  }
+
   route(from: WorldPoint, to: WorldPoint): WorldPoint[] {
     return this.roadGraph?.route(from, to) ?? [from, to];
   }
@@ -210,8 +227,10 @@ export class AccraWorldRuntime {
   private disposeChunk(chunk: LoadedChunk): void {
     const roads = chunk.group.getObjectByName("osm-roads");
     const buildings = chunk.group.getObjectByName("osm-buildings");
+    const dressing = chunk.group.getObjectByName("osm-street-dressing");
     if (roads instanceof THREE.Group) disposeRoadGroup(roads);
     if (buildings instanceof THREE.Group) disposeBuildingGroup(buildings);
+    if (dressing instanceof THREE.Group) disposeStreetDressingGroup(dressing);
     this.group.remove(chunk.group);
   }
 
