@@ -25,6 +25,17 @@ export default function GameClient() {
         engine = new Engine(canvasRef.current);
         disposeVisualQuality = applyVisualQuality(engine);
         engineRef.current = engine;
+
+        // The legacy procedural-world helper produced a giant floor arrow after
+        // the real Accra map was enabled. Route guidance now comes from the
+        // smaller road-following chevrons instead.
+        engine.world.arrowHelper.visible = false;
+
+        // The old stylized sky texture reads like giant flat circles against the
+        // much more grounded OSM city. Keep the dynamic sky color/fog, but remove
+        // that texture layer for a cleaner horizon.
+        if (engine.skyDome) engine.skyDome.visible = false;
+
         setProgress(100);
         setTimeout(() => {
           if (!cancelled) {
