@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { buildRoadGroup, disposeRoadGroup } from "./road-renderer";
 import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
 import { buildStreetDressingGroup, disposeStreetDressingGroup } from "./street-dressing";
+import { buildPeopleGroup, disposePeopleGroup } from "./people";
+import { buildLandmarkGroup, disposeLandmarkGroup } from "./landmarks";
 import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment } from "./coordinates";
 import { RoadGraph } from "./road-graph";
 import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, WorldPoint, WorldRoad } from "./types";
@@ -36,18 +38,24 @@ export class AccraWorldRuntime {
   private roadIndex = new Map<string, WorldRoad[]>();
   private destroyed = false;
   private ground: THREE.Mesh;
+  private landmarks: THREE.Group;
 
   constructor(private scene: THREE.Scene, private mobile = false, private baseUrl = "/world/accra") {
     this.group.name = "accra-osm-world";
     this.group.visible = false;
 
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x75855c, roughness: 0.99, metalness: 0 });
+    // Warmer, dustier tropical base than the old flat green plane. Roads,
+    // compounds and vegetation now read against an Accra-like earth/grass mix.
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x8c8b61, roughness: 0.99, metalness: 0 });
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.03;
     this.ground.receiveShadow = true;
     this.ground.name = "accra-ground";
     this.group.add(this.ground);
+
+    this.landmarks = buildLandmarkGroup();
+    this.group.add(this.landmarks);
     scene.add(this.group);
   }
 
@@ -123,6 +131,7 @@ export class AccraWorldRuntime {
         group.add(buildRoadGroup(data.roads, this.mobile));
         group.add(buildBuildingGroup(data.buildings, this.mobile));
         group.add(buildStreetDressingGroup(data, this.mobile));
+        group.add(buildPeopleGroup(data, this.mobile));
         this.group.add(group);
         this.loaded.set(key, { data, group });
         this.roadIndex.set(key, data.roads);
@@ -228,9 +237,11 @@ export class AccraWorldRuntime {
     const roads = chunk.group.getObjectByName("osm-roads");
     const buildings = chunk.group.getObjectByName("osm-buildings");
     const dressing = chunk.group.getObjectByName("osm-street-dressing");
+    const people = chunk.group.getObjectByName("osm-people");
     if (roads instanceof THREE.Group) disposeRoadGroup(roads);
     if (buildings instanceof THREE.Group) disposeBuildingGroup(buildings);
     if (dressing instanceof THREE.Group) disposeStreetDressingGroup(dressing);
+    if (people instanceof THREE.Group) disposePeopleGroup(people);
     this.group.remove(chunk.group);
   }
 
@@ -239,6 +250,7 @@ export class AccraWorldRuntime {
     for (const chunk of Array.from(this.loaded.values())) this.disposeChunk(chunk);
     this.loaded.clear();
     this.roadIndex.clear();
+    disposeLandmarkGroup(this.landmarks);
     this.ground.geometry.dispose();
     const material = this.ground.material;
     if (Array.isArray(material)) material.forEach(m => m.dispose());
