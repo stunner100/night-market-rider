@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useGame, saveBoard } from "@/game/store";
-import { formatMetres } from "@/game/world/distance";
 import type { MinimapFrame } from "@/game/world/minimap-data";
 import { engineRef } from "./GameClient";
+import DeliveryPhone from "./DeliveryPhone";
 
 function fmtTime(s: number) {
   s = Math.max(0, Math.ceil(s));
@@ -310,14 +310,12 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
             <span className="pill">GHS {s.earnings.toFixed(2)}</span>
             <span className="pill">⭐ {s.rating.toFixed(1)}</span>
           </div>
-          {s.order && (s.phase === "toPickup" || s.phase === "toDropoff") && (
+          {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
             <div style={{ position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", textAlign: "center" }}>
-              <span className="pill" style={{ borderColor: "#f2e35c" }}>
-                📍 {s.phase === "toPickup" ? `${s.order.vendor}` : `${s.order.customer} — ${s.order.dropoff}`} · {formatMetres(s.distM)}
-              </span>
-              {s.turnHint ? <div style={{ marginTop: 6 }}><span className="pill" style={{ background: "#f2e35c", color: "#111" }}>{s.turnHint}</span></div> : null}
+              <span className="pill" style={{ background: "#f2e35c", color: "#111" }}>{s.turnHint}</span>
             </div>
           )}
+          <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
           {s.banner && (
             <div style={{ position: "absolute", top: "30%", width: "100%", textAlign: "center" }}>
               <span className="pop pill" style={{ fontSize: 20, background: "#ff922b", color: "#111", border: "none", padding: "10px 22px" }}>{s.banner}</span>
@@ -346,42 +344,6 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
             <div className="touch-btn" {...hold("boost")}>BOOST</div>
           </div>
         </>
-      )}
-
-      {s.phase === "offer" && s.order && (
-        <div style={{ position: "absolute", bottom: 140, left: "50%", transform: "translateX(-50%)", width: "min(420px, 92vw)", pointerEvents: "auto" }}>
-          <div className="card pop" style={{ padding: 18 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>{s.order.emoji} NEW ORDER</div>
-            <div style={{ fontSize: 14, marginTop: 6, lineHeight: 1.5 }}>
-              Vendor: <b>{s.order.vendor}</b><br />
-              Customer: <b>{s.order.customer}</b> · Dropoff: <b>{s.order.dropoff}</b><br />
-              Reward: <b className="nm-title">GHS {s.order.reward.toFixed(2)}</b> · Time: <b>{fmtTime(s.order.timeTotal)}</b>
-            </div>
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 12 }} onClick={() => eng?.acceptOrder()}>ACCEPT ORDER</button>
-          </div>
-        </div>
-      )}
-
-      {(s.phase === "pickup" || s.phase === "deliver") && (
-        <div style={{ position: "absolute", bottom: 150, left: "50%", transform: "translateX(-50%)" }}>
-          <span className="pill pop" style={{ fontSize: 17, background: "#f2e35c", color: "#111", border: "none", padding: "12px 24px" }}>
-            {s.phase === "pickup" ? "PICKING UP ORDER… 📦" : "HANDING OVER… 🍱"}
-          </span>
-        </div>
-      )}
-
-      {s.phase === "delivered" && s.lastDelivery && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div className="card pop" style={{ padding: 26, textAlign: "center", width: "min(400px, 90vw)" }}>
-            <div style={{ fontSize: 30, fontWeight: 900 }}>DELIVERED! 🎉</div>
-            <div style={{ marginTop: 8, lineHeight: 1.7, fontWeight: 700 }}>
-              + GHS {s.lastDelivery.reward.toFixed(2)}<br />
-              + {s.lastDelivery.xp} XP<br />
-              ⭐ Customer Rating: {s.lastDelivery.rating.toFixed(1)}<br />
-              🔥 {s.lastDelivery.streak} Delivery Streak
-            </div>
-          </div>
-        </div>
       )}
 
       {s.phase === "gameover" && (
@@ -435,7 +397,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
                   4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
                   5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster.<br />
                   6. Night Market coins add score, XP, and a little boost.<br />
-                  7. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.
+                  7. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.<br />
+                  8. The phone on the right is your chop order. Tap the top bar to tuck it while you ride.
                 </div>
               </>
             )}
