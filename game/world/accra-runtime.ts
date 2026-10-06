@@ -4,31 +4,21 @@ import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
 import { buildStreetDressingGroup, disposeStreetDressingGroup } from "./street-dressing";
 import { buildPeopleGroup, disposePeopleGroup } from "./people";
 import { buildLandmarkGroup, disposeLandmarkGroup } from "./landmarks";
-import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment } from "./coordinates";
+import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment, pointInPolygon } from "./coordinates";
+import type { RoadFrame } from "./roadside-placement";
 import { RoadGraph } from "./road-graph";
-import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, WorldPoint, WorldRoad } from "./types";
+import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, WorldPoi, WorldPoint, WorldRoad } from "./types";
 
 interface LoadedChunk {
   data: WorldChunk;
   group: THREE.Group;
 }
 
-function pointInPolygon(x: number, z: number, points: WorldPoint[]): boolean {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const a = points[i];
-    const b = points[j];
-    const crosses = ((a.z > z) !== (b.z > z)) &&
-      (x < (b.x - a.x) * (z - a.z) / ((b.z - a.z) || 1e-9) + a.x);
-    if (crosses) inside = !inside;
-  }
-  return inside;
-}
-
 export class AccraWorldRuntime {
   readonly group = new THREE.Group();
   manifest: WorldManifest | null = null;
   locations: GeographicLocation[] = [];
+  pois: WorldPoi[] = [];
   roadGraph: RoadGraph | null = null;
   available = false;
   ready = false;
@@ -71,6 +61,10 @@ export class AccraWorldRuntime {
       this.manifest = manifest;
       if (graphRes.ok) this.roadGraph = new RoadGraph(await graphRes.json() as RoadGraphData);
       if (locationsRes.ok) this.locations = await locationsRes.json() as GeographicLocation[];
+      try {
+        const poisRes = await fetch(`${this.baseUrl}/pois.json`, { cache: "force-cache" });
+        if (poisRes.ok) this.absorbPois(await poisRes.json() as WorldPoi[]);
+      } catch { /* fuel can still be discovered from loaded chunks */ }
       this.available = true;
       return true;
     } catch (error) {
@@ -135,6 +129,7 @@ export class AccraWorldRuntime {
         this.group.add(group);
         this.loaded.set(key, { data, group });
         this.roadIndex.set(key, data.roads);
+        this.absorbPois(data.pois);
         this.ready = true;
         this.group.visible = true;
       } catch (error) {
@@ -188,6 +183,46 @@ export class AccraWorldRuntime {
     return null;
   }
 
+  nearestRoadFrame(x: number, z: number, maxDistance = 40): RoadFrame | null {
+    const manifest = this.manifest;
+    if (!manifest) return null;
+    const at = chunkForPoint(x, z, manifest.chunkSize);
+    let best: RoadFrame | null = null;
+    let bestDistance = maxDistance;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const road of this.roadIndex.get(chunkKey(at.cx + dx, at.cz + dz)) ?? []) {
+          for (let i = 0; i < road.points.length - 1; i++) {
+            const a = road.points[i];
+            const b = road.points[i + 1];
+            const hit = nearestPointOnSegment(x, z, a, b);
+            if (hit.distance >= bestDistance) continue;
+            const len = Math.hypot(b.x - a.x, b.z - a.z);
+            if (len < 0.5) continue;
+            const tx = (b.x - a.x) / len;
+            const tz = (b.z - a.z) / len;
+            bestDistance = hit.distance;
+            best = {
+              x: hit.point.x,
+              z: hit.point.z,
+              tangentX: tx,
+              tangentZ: tz,
+              normalX: -tz,
+              normalZ: tx,
+              width: Math.max(2.6, road.width || 3.2),
+              highway: road.highway,
+              roadId: road.id,
+              t: hit.t,
+              segmentLength: len,
+              segmentIndex: i,
+            };
+          }
+        }
+      }
+    }
+    return best;
+  }
+
   nearestRoadPoint(x: number, z: number, maxDistance = 50): WorldPoint | null {
     const manifest = this.manifest;
     if (!manifest) return null;
@@ -231,6 +266,13 @@ export class AccraWorldRuntime {
 
   getLocation(id: string): GeographicLocation | null {
     return this.locations.find(location => location.id === id) ?? null;
+  }
+
+  private absorbPois(pois: WorldPoi[]): void {
+    for (const poi of pois) {
+      if (this.pois.some(existing => existing.id === poi.id)) continue;
+      this.pois.push(poi);
+    }
   }
 
   private disposeChunk(chunk: LoadedChunk): void {

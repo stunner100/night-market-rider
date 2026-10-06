@@ -1,13 +1,114 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useGame, saveBoard } from "@/game/store";
+import { formatMetres } from "@/game/world/distance";
+import type { MinimapFrame } from "@/game/world/minimap-data";
 import { engineRef } from "./GameClient";
 
 function fmtTime(s: number) {
   s = Math.max(0, Math.ceil(s));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
-function fmtKm(distUnits: number) { return `${Math.round(distUnits * 8)}m`; }
+function roadColor(highway: string): string {
+  if (highway === "trunk" || highway === "trunk_link" || highway === "primary") return "#8d9274";
+  if (highway === "secondary" || highway === "tertiary") return "#6d735c";
+  return "#4a5244";
+}
+
+function roadWidth(highway: string): number {
+  if (highway === "trunk" || highway === "primary") return 3.4;
+  if (highway === "secondary" || highway === "tertiary") return 2.5;
+  if (highway === "residential" || highway === "unclassified") return 1.7;
+  return 1.15;
+}
+
+function drawOsmMinimap(
+  g: CanvasRenderingContext2D,
+  frame: MinimapFrame,
+  px: number,
+  pz: number,
+  heading: number,
+) {
+  const W = 150;
+  const H = 150;
+  const cx = W / 2;
+  const cy = H / 2;
+  g.clearRect(0, 0, W, H);
+  g.save();
+  g.beginPath();
+  g.arc(cx, cy, cx - 2, 0, Math.PI * 2);
+  g.clip();
+  g.fillStyle = "rgba(8,18,12,0.92)";
+  g.fillRect(0, 0, W, H);
+  const scale = (cx - 8) / frame.radius;
+  g.translate(cx, cy);
+  g.rotate(-heading + Math.PI);
+  const X = (x: number) => (x - px) * scale;
+  const Z = (z: number) => (z - pz) * scale;
+  for (const road of frame.roads) {
+    g.strokeStyle = roadColor(road.highway);
+    g.lineWidth = roadWidth(road.highway);
+    g.beginPath();
+    g.moveTo(X(road.ax), Z(road.az));
+    g.lineTo(X(road.bx), Z(road.bz));
+    g.stroke();
+  }
+  if (frame.route.length > 1) {
+    g.strokeStyle = "#f2e35c";
+    g.lineWidth = 2.2;
+    g.setLineDash([5, 4]);
+    g.beginPath();
+    frame.route.forEach((point, index) => {
+      const x = X(point.x);
+      const z = Z(point.z);
+      if (index === 0) g.moveTo(x, z);
+      else g.lineTo(x, z);
+    });
+    g.stroke();
+    g.setLineDash([]);
+  }
+  const marker = (point: { x: number; z: number } | null, color: string) => {
+    if (!point) return;
+    let x = point.x - px;
+    let z = point.z - pz;
+    const dist = Math.hypot(x, z);
+    if (dist > frame.radius) {
+      const k = (frame.radius - 8) / dist;
+      x *= k;
+      z *= k;
+    }
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(x * scale, z * scale, 5, 0, Math.PI * 2);
+    g.fill();
+  };
+  for (const station of frame.fuel) marker(station, "#ff922b");
+  for (const mark of frame.landmarks) {
+    g.fillStyle = "#74c0fc";
+    g.beginPath();
+    g.arc(X(mark.x), Z(mark.z), 2.4, 0, Math.PI * 2);
+    g.fill();
+  }
+  marker(frame.pickup, "#f2e35c");
+  marker(frame.drop, "#51cf66");
+  g.restore();
+  g.save();
+  g.translate(cx, cy);
+  g.fillStyle = "#f2e35c";
+  g.beginPath();
+  g.moveTo(0, -9);
+  g.lineTo(6, 7);
+  g.lineTo(0, 3.5);
+  g.lineTo(-6, 7);
+  g.closePath();
+  g.fill();
+  g.restore();
+  g.strokeStyle = "#f2e35c";
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(cx, cy, cx - 2, 0, Math.PI * 2);
+  g.stroke();
+}
 
 export default function UI({ ready, progress }: { ready: boolean; progress: number }) {
   const s = useGame();
@@ -28,6 +129,11 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       if (!cv || !eng) return;
       const g = cv.getContext("2d");
       if (!g) return;
+      const frame = eng.osmActive ? eng.collectMinimap() : null;
+      if (frame) {
+        drawOsmMinimap(g, frame, eng.px, eng.pz, eng.heading);
+        return;
+      }
       const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
       g.clearRect(0, 0, W, H);
       g.save();
@@ -204,7 +310,7 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
           {s.order && (s.phase === "toPickup" || s.phase === "toDropoff") && (
             <div style={{ position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", textAlign: "center" }}>
               <span className="pill" style={{ borderColor: "#f2e35c" }}>
-                📍 {s.phase === "toPickup" ? `${s.order.vendor}` : `${s.order.customer} — ${s.order.dropoff}`} · {fmtKm(s.distM)}
+                📍 {s.phase === "toPickup" ? `${s.order.vendor}` : `${s.order.customer} — ${s.order.dropoff}`} · {formatMetres(s.distM)}
               </span>
               {s.turnHint ? <div style={{ marginTop: 6 }}><span className="pill" style={{ background: "#f2e35c", color: "#111" }}>{s.turnHint}</span></div> : null}
             </div>
@@ -320,12 +426,12 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
               <>
                 <h3 style={{ margin: "0 0 10px" }}>How to Play</h3>
                 <div style={{ fontSize: 14, lineHeight: 1.7 }}>
-                  1. <b>ACCEPT ORDER</b> → ride to the yellow vendor beam.<br />
-                  2. <b>PICK UP</b> → then follow chevrons to the green drop beam.<br />
-                  3. <b>DELIVER</b> before the timer runs out.<br />
-                  4. Dodge trotros, taxis, potholes &amp; goats. Near misses earn +100.<br />
-                  5. 3 strikes (crashes / late orders) ends the shift.<br />
-                  6. Boost with SPACE — grab coins to recharge.
+                  1. Accept an order and follow the road to the vendor.<br />
+                  2. Pick up, then follow the route to the customer before time runs out.<br />
+                  3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
+                  4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
+                  5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster.<br />
+                  6. Night Market coins add score, XP, and a little boost.
                 </div>
               </>
             )}

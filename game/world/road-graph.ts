@@ -2,17 +2,79 @@ import type { RoadGraphData, RoadGraphEdge, RoadGraphNode, WorldPoint } from "./
 
 interface QueueNode { id: string; f: number; }
 
+const CELL = 64;
+
+export interface Departure {
+  edge: RoadGraphEdge;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+}
+
 export class RoadGraph {
   private nodes = new Map<string, RoadGraphNode>();
   private adjacency = new Map<string, RoadGraphEdge[]>();
+  private nodeCells = new Map<string, RoadGraphNode[]>();
 
   constructor(data: RoadGraphData) {
-    for (const node of data.nodes) this.nodes.set(node.id, node);
+    for (const node of data.nodes) {
+      this.nodes.set(node.id, node);
+      const key = this.cellKey(node.x, node.z);
+      const bucket = this.nodeCells.get(key) ?? [];
+      bucket.push(node);
+      this.nodeCells.set(key, bucket);
+    }
     for (const edge of data.edges) {
       const arr = this.adjacency.get(edge.from) ?? [];
       arr.push(edge);
       this.adjacency.set(edge.from, arr);
     }
+  }
+
+  private cellKey(x: number, z: number): string {
+    return `${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
+  }
+
+  node(id: string): RoadGraphNode | undefined {
+    return this.nodes.get(id);
+  }
+
+  outgoing(id: string): RoadGraphEdge[] {
+    return this.adjacency.get(id) ?? [];
+  }
+
+  departures(id: string): Departure[] {
+    const from = this.nodes.get(id);
+    if (!from) return [];
+    const out: Departure[] = [];
+    for (const edge of this.adjacency.get(id) ?? []) {
+      const to = this.nodes.get(edge.to);
+      if (!to) continue;
+      out.push({ edge, ax: from.x, az: from.z, bx: to.x, bz: to.z });
+    }
+    return out;
+  }
+
+  nodesInRadius(x: number, z: number, radius: number): RoadGraphNode[] {
+    const out: RoadGraphNode[] = [];
+    const r2 = radius * radius;
+    const minCx = Math.floor((x - radius) / CELL);
+    const maxCx = Math.floor((x + radius) / CELL);
+    const minCz = Math.floor((z - radius) / CELL);
+    const maxCz = Math.floor((z + radius) / CELL);
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      for (let cz = minCz; cz <= maxCz; cz++) {
+        const bucket = this.nodeCells.get(`${cx}:${cz}`);
+        if (!bucket) continue;
+        for (const node of bucket) {
+          const dx = node.x - x;
+          const dz = node.z - z;
+          if (dx * dx + dz * dz <= r2) out.push(node);
+        }
+      }
+    }
+    return out;
   }
 
   get size(): number { return this.nodes.size; }

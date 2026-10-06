@@ -1,11 +1,17 @@
 import * as THREE from "three";
 import { buildWorld, World } from "./world";
 import { buildRider, RiderRig } from "./bike";
-import { makeOrder, saveBoard, useGame } from "./store";
+import { makeOrder, saveBoard, separateOrderFromRider, useGame } from "./store";
 import { GameAudio } from "./audio";
 import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
+import { formatWorldDistance, polylineLength, worldUnitsToMetres } from "./world/distance";
+import { BOOST_FUEL_PER_SECOND, CRUISE_FUEL_PER_SECOND, fuelBrand } from "./world/fuel-stations";
+import { buildMinimapFrame, type MinimapFrame } from "./world/minimap-data";
+import { cueFromRoute } from "./world/navigation";
+import { OsmGameplay } from "./world/osm-gameplay";
+import { chooseRoadside } from "./world/roadside-placement";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -60,9 +66,12 @@ export class Engine {
   camPos = new THREE.Vector3(0, 5, -28);
   osmWorld: AccraWorldRuntime;
   osmActive = false;
+  osmPlay: OsmGameplay | null = null;
   private _osmRoute: { x: number; z: number }[] = [];
   private _osmRouteTarget = "";
   private _osmRouteAt = 0;
+  private _osmRouteFromX = 0;
+  private _osmRouteFromZ = 0;
   private _bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private _fuelWarned = false;
 
@@ -134,7 +143,51 @@ export class Engine {
     const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
     if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
     this.osmActive = true;
+    this.osmPlay = new OsmGameplay(this.scene, this.osmWorld, this.isMobile);
+    this.osmPlay.start(this.px, this.pz);
     useGame.getState().pushToast("🗺️ Real Accra map loaded");
+  }
+
+  private tickOsm(dt: number, elapsed: number) {
+    if (!this.osmActive || !this.osmPlay) return;
+    void this.osmWorld.update(this.px, this.pz);
+    const order = useGame.getState().order;
+    const zones = order
+      ? [{ x: order.pickupX, z: order.pickupZ, r: 22 }, { x: order.dropX, z: order.dropZ, r: 22 }]
+      : [];
+    this.osmPlay.update(dt, this.px, this.pz, elapsed, zones);
+  }
+
+  private placeActor(x: number, z: number): { x: number; z: number; yaw: number } {
+    if (!this.osmActive) return { x: x + 3.5, z: z + 1, yaw: 0 };
+    const spot = chooseRoadside({
+      nearestFrame: (px, pz, max) => this.osmWorld.nearestRoadFrame(px, pz, max),
+      blocked: (px, pz) => {
+        if (this.osmWorld.collidesBuilding(px, pz, 0.55)) return true;
+        const frame = this.osmWorld.nearestRoadFrame(px, pz, 6);
+        return !!frame && Math.hypot(px - frame.x, pz - frame.z) < frame.width * 0.38;
+      },
+    }, x, z);
+    return spot ?? { x: x + 3.5, z: z + 1, yaw: 0 };
+  }
+
+  collectMinimap(): MinimapFrame | null {
+    if (!this.osmActive) return null;
+    const state = useGame.getState();
+    const order = state.order;
+    const phase = state.phase;
+    const navigating = phase === "offer" || phase === "toPickup" || phase === "toDropoff";
+    return buildMinimapFrame({
+      px: this.px,
+      pz: this.pz,
+      roads: this.osmWorld.visibleRoads(this.px, this.pz, 1),
+      route: navigating ? this._osmRoute : [],
+      pickup: order && (phase === "offer" || phase === "toPickup" || phase === "pickup") ? { x: order.pickupX, z: order.pickupZ } : null,
+      drop: order && (phase === "toDropoff" || phase === "deliver") ? { x: order.dropX, z: order.dropZ } : null,
+      fuel: (this.osmPlay?.fuelBodies() ?? []).map(station => ({ x: station.x, z: station.z })),
+      landmarks: this.osmWorld.locations.map(location => ({ x: location.x, z: location.z, name: location.name })),
+      radius: 130,
+    });
   }
 
   resize = () => {
@@ -239,12 +292,20 @@ export class Engine {
 
   offerNext() {
     const s = useGame.getState();
-    const order = makeOrder(s.orderIndex);
+    const order = this.osmActive
+      ? separateOrderFromRider(makeOrder(s.orderIndex), this.px, this.pz, s.orderIndex)
+      : makeOrder(s.orderIndex);
     if (this.osmActive) {
       const pickup = this.osmWorld.nearestRoadPoint(order.pickupX, order.pickupZ, 180);
       const drop = this.osmWorld.nearestRoadPoint(order.dropX, order.dropZ, 180);
       if (pickup) { order.pickupX = pickup.x; order.pickupZ = pickup.z; }
       if (drop) { order.dropX = drop.x; order.dropZ = drop.z; }
+      const route = this.osmWorld.route({ x: order.pickupX, z: order.pickupZ }, { x: order.dropX, z: order.dropZ });
+      const routed = polylineLength(route);
+      const straight = Math.hypot(order.dropX - order.pickupX, order.dropZ - order.pickupZ);
+      if (straight > 20 && routed > straight * 1.15) {
+        order.timeTotal = Math.round(order.timeTotal * Math.min(1.85, routed / straight));
+      }
     }
     this._osmRouteTarget = "";
     this._osmRoute.length = 0;
@@ -283,7 +344,9 @@ export class Engine {
     const bag = buildHandBag(0xf2e35c);
     bag.position.set(0, -0.02, 0.05);
     rig.armL.hand.add(bag);
-    rig.group.position.set(order.pickupX + 3.5, 0, order.pickupZ + 1);
+    const spot = this.placeActor(order.pickupX, order.pickupZ);
+    rig.group.position.set(spot.x, 0, spot.z);
+    rig.group.rotation.y = spot.yaw;
     this.scene.add(rig.group);
     this.vendorNPC = rig.group;
     this.vendorRig = rig;
@@ -302,7 +365,9 @@ export class Engine {
       longSleeves: Math.random() < 0.3,
       shorts: Math.random() < 0.3,
     });
-    rig.group.position.set(order.dropX + 3.5, 0, order.dropZ + 1);
+    const spot = this.placeActor(order.dropX, order.dropZ);
+    rig.group.position.set(spot.x, 0, spot.z);
+    rig.group.rotation.y = spot.yaw;
     this.scene.add(rig.group);
     this.customerNPC = rig.group;
     this.customerRig = rig;
@@ -336,7 +401,23 @@ export class Engine {
   }
 
   /** Per-frame NPC animation: face the player, wave, walk up, or hand off. */
+  private settleRoadside(group: THREE.Group | null, anchorX: number, anchorZ: number) {
+    if (!group || !this.osmActive) return;
+    if (Math.hypot(this.px - anchorX, this.pz - anchorZ) > 90) return;
+    if (!this.osmWorld.nearestRoadFrame(anchorX, anchorZ, 30)) return;
+    const crowded = !!this.osmWorld.collidesBuilding(group.position.x, group.position.z, 0.45);
+    const frame = this.osmWorld.nearestRoadFrame(group.position.x, group.position.z, 8);
+    const inLane = !!frame && Math.hypot(group.position.x - frame.x, group.position.z - frame.z) < frame.width * 0.35;
+    if (!crowded && !inLane) return;
+    const spot = this.placeActor(anchorX, anchorZ);
+    group.position.set(spot.x, 0, spot.z);
+    group.rotation.y = spot.yaw;
+  }
+
   private animateNPCs(t: number, phase: string, dt: number) {
+    const order = useGame.getState().order;
+    if (order && (phase === "offer" || phase === "toPickup")) this.settleRoadside(this.vendorNPC, order.pickupX, order.pickupZ);
+    if (order && phase === "toDropoff") this.settleRoadside(this.customerNPC, order.dropX, order.dropZ);
     if (this.vendorRig && this.vendorNPC) {
       const v = this.vendorNPC;
       this._faceRider(v, dt);
@@ -372,8 +453,8 @@ export class Engine {
     }
     const tex = textTexture(`📍 ${text}`, { bg: "#0b0b0c", fg: "#f2e35c", border: "#f2e35c", w: 512, h: 128 });
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-    sp.scale.set(10, 2.5, 1);
-    sp.position.set(x, 9, z);
+    sp.scale.set(7.2, 1.8, 1);
+    sp.position.set(x, 4.6, z);
     this.scene.add(sp);
     this.targetLabel = sp;
   }
@@ -485,6 +566,11 @@ export class Engine {
       this.px = Math.sin(t * 0.1) * 4; this.pz = -18;
       this.heading = Math.PI + Math.sin(t * 0.2) * 0.2;
       this.speed = 0;
+      if (this.osmActive) {
+        const snapped = this.osmWorld.nearestRoadPoint(0, -18, 80);
+        if (snapped) { this.px = snapped.x + Math.sin(t * 0.1) * 4; this.pz = snapped.z; }
+      }
+      this.tickOsm(dt, t);
       this.world.update(dt, t, 0.15, this.px, this.pz);
       this.syncRig(dt, t, 0);
       this.updateCamera(dt, true);
@@ -525,7 +611,7 @@ export class Engine {
 
     // Fuel consumption
     if (canDrive && Math.abs(this.speed) > 0.5) {
-      const fuelRate = this.boostOn ? 1.8 : 0.7; // boost burns more fuel
+      const fuelRate = this.boostOn ? BOOST_FUEL_PER_SECOND : CRUISE_FUEL_PER_SECOND;
       s.fuel = Math.max(0, s.fuel - fuelRate * dt);
     }
     // Out of fuel — can't accelerate
@@ -571,14 +657,28 @@ export class Engine {
       this.py += this.vy * dt;
       if (this.py <= 0) { this.py = 0; this.vy = 0; this.bump = 0.5; this.shake = Math.max(this.shake, 0.4); }
     }
-    for (const r of this.world.ramps) {
+    const osm = this.osmPlay;
+    const traffic = osm ? osm.trafficBodies() : this.world.traffic;
+    const walkers = osm ? osm.walkerBodies() : this.world.peds;
+    const ramps = osm ? osm.ramps() : this.world.ramps;
+    const potholes = osm ? osm.potholes() : this.world.potholes;
+    const coins = osm ? osm.coins() : this.world.coins;
+    const fuels = osm ? osm.fuelBodies() : this.world.fuelStations;
+    let activeTraffic = traffic;
+    if (!osm) {
+      const cap = 8 + Math.round(orderDiff * 6);
+      this.world.traffic.forEach((car, index) => { car.mesh.visible = index < cap; });
+      activeTraffic = this.world.traffic.filter((_, index) => index < cap);
+    }
+
+    for (const r of ramps) {
       const d = Math.hypot(this.px - r.x, this.pz - r.z);
       if (d < r.r && Math.abs(this.speed) > 13 && this.py === 0) {
         this.vy = 6; this.speed *= 0.88; this.shake = Math.max(this.shake, 0.5);
         s.pushToast("⛰️ Speed ramp!");
       }
     }
-    for (const p of this.world.potholes) {
+    for (const p of potholes) {
       const d = Math.hypot(this.px - p.x, this.pz - p.z);
       if (d < p.r && this.py === 0 && this.potCool <= 0 && Math.abs(this.speed) > 6) {
         this.potCool = 1.2; this.vy = 3.4; this.speed *= 0.7;
@@ -603,15 +703,15 @@ export class Engine {
       }
     }
 
-    // traffic collisions + near miss
-    const activeTraffic = this.world.traffic.filter((_, i) => i < 8 + Math.round(orderDiff * 6));
-    for (const c of this.world.traffic) c.mesh.visible = activeTraffic.includes(c);
     if (riding) {
       for (const c of activeTraffic) {
+        if (!c.mesh.visible) continue;
         const d = Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z);
-        if (d < 2.6 && Math.abs(this.speed) > 4) { this.crash(c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : "🚗 Crash! Chale, easy oo."); break; }
-        else if (d < 2.6 && this.crashCool <= 0) { this.speed *= 0.4; }
-        if (d > 2.6 && d < 4.4 && Math.abs(this.speed) > 16 && this.nearCool <= 0) {
+        const reach = c.kind === "bus" || c.kind === "trotro" ? 3.2 : 2.5;
+        const crashLine = c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : c.kind === "bus" ? "🚌 Bus bump! Easy oo." : c.kind === "taxi" ? "🚕 Taxi crash! Chale, easy oo." : "🚗 Crash! Chale, easy oo.";
+        if (d < reach && Math.abs(this.speed) > 4) { this.crash(crashLine); break; }
+        else if (d < reach && this.crashCool <= 0) { this.speed *= 0.4; }
+        if (d > reach && d < reach + 1.8 && Math.abs(this.speed) > 16 && this.nearCool <= 0) {
           this.nearCool = 2;
           s.set({ score: s.score + 100, xp: s.xp + 25 });
           s.pushToast("😱 NEAR MISS +100");
@@ -619,7 +719,7 @@ export class Engine {
         }
       }
       // peds & goats — physical crash response with ragdoll tumble
-      for (const p of this.world.peds) {
+      for (const p of walkers) {
         const pdx = this.px - p.mesh.position.x;
         const pdz = this.pz - p.mesh.position.z;
         const d = Math.sqrt(pdx * pdx + pdz * pdz);
@@ -646,7 +746,7 @@ export class Engine {
         }
       }
       // coins
-      for (const c of this.world.coins) {
+      for (const c of coins) {
         if (c.taken) continue;
         if (Math.hypot(this.px - c.x, this.pz - c.z) < 2.2) {
           c.taken = true; c.mesh.visible = false;
@@ -656,8 +756,8 @@ export class Engine {
         }
       }
       // Fuel stations
-      if (this.world.fuelStations) {
-        for (const fs of this.world.fuelStations) {
+      if (fuels) {
+        for (const fs of fuels) {
           const d = Math.hypot(this.px - fs.x, this.pz - fs.z);
           if (d < 6.0 && Math.abs(this.speed) < 6.0) {
             if (s.fuel < 98) {
@@ -665,7 +765,7 @@ export class Engine {
               const newFuel = Math.min(100, s.fuel + refuelRate);
               s.set({ fuel: newFuel });
               if (s.fuel < 30 && newFuel >= 30) {
-                s.pushToast("⛽ Refueling at GOIL...");
+                s.pushToast(`⛽ Refueling at ${osm ? fuelBrand(fs) : "GOIL"}...`);
                 s.set({ banner: null });
                 this._fuelWarned = false;
               }
@@ -754,7 +854,10 @@ export class Engine {
         if (this.deliveredT <= 0) {
           s.set({ orderIndex: s.orderIndex + 1 });
           // reset coins occasionally
-          if (s.orderIndex % 3 === 0) for (const c of this.world.coins) { c.taken = false; c.mesh.visible = true; }
+          if (s.orderIndex % 3 === 0) {
+            if (this.osmPlay) this.osmPlay.resetCoins();
+            else for (const c of this.world.coins) { c.taken = false; c.mesh.visible = true; }
+          }
           this.offerNext();
         }
       }
@@ -794,7 +897,7 @@ export class Engine {
     }
 
     const t = performance.now() / 1000;
-    if (this.osmActive) void this.osmWorld.update(this.px, this.pz);
+    this.tickOsm(dt, t);
     this.world.update(dt, t, this.nightF, this.px, this.pz);
     this.animateNPCs(t, phase, dt);
     this.syncRig(dt, t, dt);
@@ -811,18 +914,27 @@ export class Engine {
       if (s.fuel < 20 && s.fuel > 0 && !this._fuelWarned) {
         s.pushToast("⛽ Fuel low! Find a station!");
       }
-      const dist = o ? Math.hypot(this.px - (phase === "toDropoff" || phase === "deliver" || phase === "delivered" ? o.dropX : o.pickupX), this.pz - (phase === "toDropoff" || phase === "deliver" || phase === "delivered" ? o.dropZ : o.pickupZ)) : 0;
+      const targetX = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropX : o?.pickupX ?? 0;
+      const targetZ = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropZ : o?.pickupZ ?? 0;
+      let distUnits = o ? Math.hypot(this.px - targetX, this.pz - targetZ) : 0;
       let turnHint = "";
-      if (o && (phase === "toPickup" || phase === "toDropoff")) {
-        const tx = phase === "toPickup" ? o.pickupX : o.dropX;
-        const tz = phase === "toPickup" ? o.pickupZ : o.dropZ;
-        const want = Math.atan2(tx - this.px, tz - this.pz);
+      if (o && (phase === "toPickup" || phase === "toDropoff") && this.osmActive && this._osmRoute.length > 1) {
+        const cue = cueFromRoute(this._osmRoute, this.px, this.pz, this.heading);
+        turnHint = cue.text;
+        distUnits = cue.remaining;
+      } else if (o && (phase === "toPickup" || phase === "toDropoff") && !this.osmActive) {
+        const want = Math.atan2(targetX - this.px, targetZ - this.pz);
         let diff = want - this.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        if (dist > 25 && Math.abs(diff) > 0.5) turnHint = `${diff > 0 ? "→ TURN RIGHT" : "← TURN LEFT"} — ${Math.round(dist * 8)}m`;
+        if (distUnits > 25 && Math.abs(diff) > 0.5) {
+          turnHint = `${diff > 0 ? "← TURN LEFT" : "→ TURN RIGHT"} — ${formatWorldDistance(distUnits, "procedural")}`;
+        }
+        distUnits = worldUnitsToMetres(distUnits, "procedural");
+      } else if (!this.osmActive) {
+        distUnits = worldUnitsToMetres(distUnits, "procedural");
       }
-      s.set({ speedKmh: Math.round(Math.abs(this.speed) * 3.2), distM: dist, turnHint });
+      s.set({ speedKmh: Math.round(Math.abs(this.speed) * (this.osmActive ? 3.6 : 3.2)), distM: distUnits, turnHint });
     }
     this.shake = Math.max(0, this.shake - dt * 2.2);
   }
@@ -876,10 +988,14 @@ export class Engine {
     if (this.osmActive) {
       const now = performance.now();
       const targetKey = `${phase}:${tx.toFixed(1)}:${tz.toFixed(1)}`;
-      if (targetKey !== this._osmRouteTarget || now - this._osmRouteAt > 900) {
+      const moved = Math.hypot(this.px - this._osmRouteFromX, this.pz - this._osmRouteFromZ);
+      const due = targetKey !== this._osmRouteTarget || now - this._osmRouteAt > 2500 || (moved > 16 && now - this._osmRouteAt > 650);
+      if (due) {
         this._osmRoute = this.osmWorld.route({ x: this.px, z: this.pz }, { x: tx, z: tz });
         this._osmRouteTarget = targetKey;
         this._osmRouteAt = now;
+        this._osmRouteFromX = this.px;
+        this._osmRouteFromZ = this.pz;
       }
       const route = this._osmRoute;
       const pointAt = (wanted: number) => {
@@ -915,7 +1031,7 @@ export class Engine {
         this.chevrons[i].rotation.z = -ang;
       }
     }
-    if (this.targetLabel) this.targetLabel.position.y = 9 + Math.sin(performance.now() / 400) * 0.5;
+    if (this.targetLabel) this.targetLabel.position.y = 4.6 + Math.sin(performance.now() / 400) * 0.25;
   }
 
   applySky(night: number) {
@@ -997,6 +1113,8 @@ export class Engine {
     window.removeEventListener("keyup", this._onKeyUp);
     document.removeEventListener("visibilitychange", this._onVis);
     this.audio.dispose();
+    this.osmPlay?.dispose();
+    this.osmPlay = null;
     this.osmWorld.dispose();
     // dispose sky dome
     if (this.skyDome) {

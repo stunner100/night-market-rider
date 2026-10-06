@@ -145,16 +145,51 @@ const GEO_PADS = [
   { name: "UPSA", lat: 5.66155, lon: -0.16638 },
 ].map(p => ({ ...p, ...latLonToWorld(p.lat, p.lon, ACCRA_ORIGIN) }));
 
+export const MIN_PICKUP_METRES = 280;
+
+function priceOrder(index: number, pickup: { x: number; z: number }, drop: { x: number; z: number }) {
+  const directMetres = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
+  const distKm = Math.max(0.35, directMetres / 1000);
+  const generous = index < 3 ? 1.45 : index < 7 ? 1.2 : 1.0;
+  return {
+    reward: Math.round((5.5 + distKm * 2.4) * 100) / 100,
+    xp: Math.round(500 + distKm * 250),
+    timeTotal: Math.round((75 + distKm * 70) * generous),
+  };
+}
+
+/** Move a pickup that sits on the rider out to the nearest real pad a few hundred metres away. */
+export function separateOrderFromRider(order: Order, riderX: number, riderZ: number, index: number): Order {
+  if (Math.hypot(order.pickupX - riderX, order.pickupZ - riderZ) >= MIN_PICKUP_METRES) return order;
+  const pickup = GEO_PADS
+    .map(pad => ({ pad, distance: Math.hypot(pad.x - riderX, pad.z - riderZ) }))
+    .filter(item => item.distance >= MIN_PICKUP_METRES)
+    .sort((a, b) => a.distance - b.distance)[0]?.pad;
+  if (!pickup) return order;
+  const sameDrop = GEO_PADS.find(pad => pad.name === order.dropoff);
+  const dropStillWorks = sameDrop
+    && sameDrop.name !== pickup.name
+    && Math.hypot(sameDrop.x - pickup.x, sameDrop.z - pickup.z) >= MIN_PICKUP_METRES;
+  const drop = dropStillWorks ? sameDrop : GEO_PADS
+    .filter(pad => pad.name !== pickup.name && Math.hypot(pad.x - pickup.x, pad.z - pickup.z) >= MIN_PICKUP_METRES)
+    .sort((a, b) => Math.hypot(a.x - pickup.x, a.z - pickup.z) - Math.hypot(b.x - pickup.x, b.z - pickup.z))[0];
+  if (!drop) return order;
+  return {
+    ...order,
+    dropoff: drop.name,
+    ...priceOrder(index, pickup, drop),
+    pickupX: pickup.x,
+    pickupZ: pickup.z,
+    dropX: drop.x,
+    dropZ: drop.z,
+  };
+}
+
 export function makeOrder(index: number): Order {
   const v = VENDORS[index % VENDORS.length];
   const padA = GEO_PADS[index % GEO_PADS.length];
   let padB = GEO_PADS[(index + 2) % GEO_PADS.length];
   if (padA === padB) padB = GEO_PADS[(index + 3) % GEO_PADS.length];
-
-  const directMetres = Math.hypot(padB.x - padA.x, padB.z - padA.z);
-  const distKm = Math.max(0.35, directMetres / 1000);
-  const generous = index < 3 ? 1.45 : index < 7 ? 1.2 : 1.0;
-  const timeTotal = Math.round((75 + distKm * 70) * generous);
 
   return {
     id: index + 1,
@@ -163,9 +198,7 @@ export function makeOrder(index: number): Order {
     emoji: v.emoji,
     customer: CUSTOMERS[index % CUSTOMERS.length],
     dropoff: padB.name,
-    reward: Math.round((5.5 + distKm * 2.4) * 100) / 100,
-    xp: Math.round(500 + distKm * 250),
-    timeTotal,
+    ...priceOrder(index, padA, padB),
     pickupX: padA.x,
     pickupZ: padA.z,
     dropX: padB.x,

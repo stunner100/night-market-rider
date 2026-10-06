@@ -58,6 +58,18 @@ export function distancePointToSegment(
   return Math.hypot(px - qx, pz - qz);
 }
 
+export function pointInPolygon(x: number, z: number, points: WorldPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i];
+    const b = points[j];
+    const crosses = ((a.z > z) !== (b.z > z)) &&
+      (x < (b.x - a.x) * (z - a.z) / ((b.z - a.z) || 1e-9) + a.x);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
 export function nearestPointOnSegment(
   px: number,
   pz: number,
