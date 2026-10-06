@@ -22,11 +22,24 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 // Shared particle geometry — one sphere reused for all particles
 const particleGeo = new THREE.SphereGeometry(0.15, 6, 5);
 
+const NIGHT_FLOOR = 0.86;
+
 // Pre-allocated Color objects for applySky
 const _skyDay = new THREE.Color(0x87ceeb);
-const _skySunset = new THREE.Color(0xff9e5e);
-const _skyNight = new THREE.Color(0x0b1026);
+const _skySunset = new THREE.Color(0xc46a3a);
+const _skyNight = new THREE.Color(0x0c1428);
 const _skyResult = new THREE.Color();
+const _fogNight = new THREE.Color(0x182033);
+const _fogResult = new THREE.Color();
+const _hemiDay = new THREE.Color(0xcde1f8);
+const _hemiNight = new THREE.Color(0x1b2c52);
+const _groundDay = new THREE.Color(0x8a6d48);
+const _groundNight = new THREE.Color(0x3d2a18);
+const _sunDay = new THREE.Color(0xffeedd);
+const _sunNight = new THREE.Color(0xb7c6de);
+const _ambientDay = new THREE.Color(0xfff4e8);
+const _ambientNight = new THREE.Color(0xffe2b8);
+const _white = new THREE.Color(0xffffff);
 // Pre-allocated Vector3 for exhaust position
 const _exhaustPos = new THREE.Vector3();
 // Pre-allocated Vector3 for menu camera target
@@ -57,7 +70,8 @@ export class Engine {
   particles: Particle[] = [];
   chevrons: THREE.Mesh[] = [];
   dustTimer = 0;
-  nightF = 0; // 0 day → 1 night
+  nightF = NIGHT_FLOOR; // deep dusk → full night, never noon
+  streetGlow: THREE.PointLight;
   hudTimer = 0;
   running = true;
   clock = new THREE.Clock();
@@ -84,9 +98,9 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // HDR tone mapping for photorealistic lighting
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.02;
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1200);
-    this.scene.background = new THREE.Color(0x87ceeb);
+    this.scene.background = new THREE.Color(0x0b1024);
 
     // Stylized Tropical Sky Dome
     const skyDomeGeo = new THREE.SphereGeometry(350, 24, 16);
@@ -99,6 +113,9 @@ export class Engine {
     this.scene.add(this.skyDome);
 
     this.world = buildWorld(this.scene, this.isMobile);
+    this.streetGlow = new THREE.PointLight(0xffb15a, 18, 24, 2);
+    this.streetGlow.position.set(0, 5.2, 0);
+    this.scene.add(this.streetGlow);
     this.osmWorld = new AccraWorldRuntime(this.scene, this.isMobile);
     this.rig = buildRider();
     this.scene.add(this.rig.group);
@@ -283,7 +300,7 @@ export class Engine {
       const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
       if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
     }
-    this.nightF = 0; this.orderCollisions = 0;
+    this.nightF = NIGHT_FLOOR; this.orderCollisions = 0;
     this.clearNPCs();
     this.countdownT = 3.2;
     this.audio.ensure();
@@ -524,8 +541,8 @@ export class Engine {
     this.deliveredT = 2.6;
     this.world.setMarkers(null, null, "delivered");
     if (this.targetLabel) { this.scene.remove(this.targetLabel); this.targetLabel = null; }
-    // day → night progression
-    this.nightF = Math.min(1, deliveries / 12);
+    // Deep dusk already; later deliveries only settle into full night.
+    this.nightF = Math.min(1, NIGHT_FLOOR + (1 - NIGHT_FLOOR) * (deliveries / 10));
   }
 
   gameOver() {
@@ -571,10 +588,10 @@ export class Engine {
         if (snapped) { this.px = snapped.x + Math.sin(t * 0.1) * 4; this.pz = snapped.z; }
       }
       this.tickOsm(dt, t);
-      this.world.update(dt, t, 0.15, this.px, this.pz);
+      this.world.update(dt, t, NIGHT_FLOOR, this.px, this.pz);
       this.syncRig(dt, t, 0);
       this.updateCamera(dt, true);
-      this.applySky(0.1);
+      this.applySky(NIGHT_FLOOR);
       return;
     }
 
@@ -958,7 +975,7 @@ export class Engine {
     this.rig.body.position.y += (sit - this.rig.body.position.y) * sitK;
     this.rig.body.rotation.x += ((this.boostOn ? 0.07 : 0) - this.rig.body.rotation.x) * sitK;
     (this.rig.brakeLight.material as THREE.MeshBasicMaterial).color.setHex(this.input.down ? 0xff2222 : 0x550000);
-    this.rig.headlight.intensity = this.nightF > 0.35 ? 60 : 0;
+    this.rig.headlight.intensity = this.nightF > 0.35 ? 28 : 0;
     const r = this.rig.rider;
     if (r) {
       const phase = useGame.getState().phase;
@@ -1035,26 +1052,33 @@ export class Engine {
   }
 
   applySky(night: number) {
-    // Late afternoon → golden hour → sunset → night
-    if (night < 0.5) _skyResult.lerpColors(_skyDay, _skySunset, night * 2);
-    else _skyResult.lerpColors(_skySunset, _skyNight, (night - 0.5) * 2);
+    const n = THREE.MathUtils.clamp(night, 0, 1);
+    if (n < 0.5) _skyResult.lerpColors(_skyDay, _skySunset, n * 2);
+    else _skyResult.lerpColors(_skySunset, _skyNight, (n - 0.5) * 2);
+    _fogResult.copy(_skyResult).lerp(_fogNight, n);
     this.scene.background = _skyResult;
-    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
+    if (this.scene.fog) this.scene.fog.color.copy(_fogResult);
 
     if (this.skyDome) {
       this.skyDome.position.set(this.px, 0, this.pz);
-      this.skyDome.rotation.y = performance.now() * 0.00003;
-      (this.skyDome.material as THREE.MeshBasicMaterial).color.copy(_skyResult);
+      this.skyDome.visible = true;
+      (this.skyDome.material as THREE.MeshBasicMaterial).color.copy(_white);
     }
 
-    // Traverse sun across tropical sky (golden afternoon -> lower sunset -> night)
-    const sunX = 70 + night * 20;
-    const sunY = Math.max(22, 95 - night * 70);
-    const sunZ = 40 - night * 30;
+    const sunX = 70 + n * 20;
+    const sunY = Math.max(28, 95 - n * 74);
+    const sunZ = 40 - n * 30;
     this.world.sun.position.set((this.osmActive ? this.px : 0) + sunX, sunY, (this.osmActive ? this.pz : 0) + sunZ);
-    this.world.sun.intensity = 2.4 - night * 1.9;
-    this.world.sun.color.setHSL(0.1 - night * 0.05, 0.7, 0.75 - night * 0.25);
-    this.world.hemi.intensity = 0.95 - night * 0.6;
+    this.world.sun.intensity = 0.1 + (1 - n) * 2.2;
+    this.world.sun.color.copy(_sunDay).lerp(_sunNight, n);
+    this.world.hemi.intensity = 0.34 + (1 - n) * 0.55;
+    this.world.hemi.color.copy(_hemiDay).lerp(_hemiNight, n);
+    this.world.hemi.groundColor.copy(_groundDay).lerp(_groundNight, n);
+    this.world.ambient.intensity = 0.2 + (1 - n) * 0.24;
+    this.world.ambient.color.copy(_ambientDay).lerp(_ambientNight, n);
+    this.streetGlow.intensity = 14 + n * 10;
+    this.streetGlow.distance = 24;
+    this.streetGlow.position.set(this.px, 4.2, this.pz);
   }
 
   updateCamera(dt: number, menu: boolean) {
@@ -1116,6 +1140,7 @@ export class Engine {
     this.osmPlay?.dispose();
     this.osmPlay = null;
     this.osmWorld.dispose();
+    this.scene.remove(this.streetGlow);
     // dispose sky dome
     if (this.skyDome) {
       this.skyDome.geometry.dispose();

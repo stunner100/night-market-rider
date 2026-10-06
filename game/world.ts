@@ -98,6 +98,7 @@ export interface World {
   headlight: THREE.SpotLight;
   sun: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
+  ambient: THREE.AmbientLight;
   sky: THREE.Color;
   pickupMarker: THREE.Group;
   dropMarker: THREE.Group;
@@ -242,11 +243,11 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
     });
   }
 
-  // --- 1. LIGHTING SETUP (Warm Golden Accra Sunlight) ---
-  const hemi = new THREE.HemisphereLight(0xcde1f8, 0x8a6d48, 0.75);
+  // Lighting starts at deep dusk. applySky keeps it there for the night market.
+  const hemi = new THREE.HemisphereLight(0x1b2c52, 0x3d2a18, 0.32);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffeedd, 2.4);
+  const sun = new THREE.DirectionalLight(0xb7c6de, 0.42);
   sun.position.set(70, 95, 40);
   sun.castShadow = true;
   sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
@@ -260,7 +261,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   sun.shadow.normalBias = 0.025;
   scene.add(sun);
 
-  const ambient = new THREE.AmbientLight(0x404040, 0.45);
+  const ambient = new THREE.AmbientLight(0xffe2b8, 0.16);
   scene.add(ambient);
 
   // --- 2. GROUND & TERRAIN LAYERS ---
@@ -966,8 +967,8 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
   const arrowHelper = new THREE.Group();
   group.add(arrowHelper);
 
-  const sky = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.0075);
+  const sky = new THREE.Color(0x0b1024);
+  scene.fog = new THREE.FogExp2(0x2a3144, 0.0084);
 
   function setMarkers(
     pickup: { x: number; z: number } | null,
@@ -1175,6 +1176,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
     headlight: null as unknown as THREE.SpotLight,
     sun,
     hemi,
+    ambient,
     sky,
     pickupMarker,
     dropMarker,

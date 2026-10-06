@@ -539,45 +539,126 @@ export function drainGutterTexture(): THREE.CanvasTexture {
   return t;
 }
 
-/** Tropical sky dome with sunset gradient and clouds */
+/** Night sky over Accra: indigo zenith, warm market glow on the horizon. */
 export function skyDomeTexture(): THREE.CanvasTexture {
-  const key = "sky-dome";
+  const key = "sky-dome-night";
   const hit = cache.get(key);
   if (hit) return hit;
   const [c, g] = makeCanvas(1024, 512);
 
-  // Vertical sky gradient (Deep blue top -> golden amber horizon)
+  // Bright enough that ACES still leaves a deep blue, not a brown or a black void.
   const grad = g.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, "#2b5c8f");
-  grad.addColorStop(0.4, "#5b92c4");
-  grad.addColorStop(0.75, "#e8a868");
-  grad.addColorStop(0.95, "#ffcc80");
-  grad.addColorStop(1.0, "#fde6b8");
+  grad.addColorStop(0, "#1a3268");
+  grad.addColorStop(0.45, "#142850");
+  grad.addColorStop(0.78, "#1c3058");
+  grad.addColorStop(1, "#24324a");
   g.fillStyle = grad;
   g.fillRect(0, 0, 1024, 512);
 
-  // Soft cumulus cloud puffs
-  function drawCloud(cx: number, cy: number, w: number, h: number) {
-    g.fillStyle = "rgba(255, 250, 240, 0.45)";
-    for (let i = 0; i < 6; i++) {
-      const rx = cx + (Math.random() - 0.5) * w;
-      const ry = cy + (Math.random() - 0.5) * h * 0.4;
-      const r = (w * 0.25) + Math.random() * (w * 0.2);
-      g.beginPath();
-      g.arc(rx, ry, r, 0, Math.PI * 2);
-      g.fill();
-    }
+  for (let i = 0; i < 240; i++) {
+    const n = ((i * 374761393) ^ (i << 3)) >>> 0;
+    const x = n % 1024;
+    const y = (n >>> 8) % 512;
+    const mag = (n >>> 20) % 12;
+    g.fillStyle = mag > 9 ? "#fff6dd" : "rgba(214,226,255,0.85)";
+    const s = mag > 10 ? 2 : 1;
+    g.fillRect(x, y, s, s);
   }
 
-  drawCloud(200, 240, 180, 60);
-  drawCloud(550, 190, 260, 70);
-  drawCloud(850, 260, 200, 60);
-  drawCloud(380, 290, 140, 50);
+  g.fillStyle = "rgba(244, 236, 210, 0.28)";
+  g.beginPath();
+  g.arc(640, 150, 36, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#f4ecd2";
+  g.beginPath();
+  g.arc(640, 150, 14, 0, Math.PI * 2);
+  g.fill();
 
   const t = new THREE.CanvasTexture(c);
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.ClampToEdgeWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
+  cache.set(key, t);
+  return t;
+}
+
+export const ACCRA_SIGNS = [
+  { title: "WAAKYE", sub: "HOT & READY", bg: "#9c2f1a", fg: "#fff4d6", accent: "#f2e35c" },
+  { title: "JOLLOF", sub: "RICE & CHICKEN", bg: "#e25b1a", fg: "#fff8ef", accent: "#2a1208" },
+  { title: "PURE WATER", sub: "ICE COLD SACHET", bg: "#0e6fad", fg: "#f4fbff", accent: "#d7f3ff" },
+  { title: "CHOP BAR", sub: "OPEN LATE", bg: "#16130f", fg: "#f2e35c", accent: "#f2e35c" },
+  { title: "PHARMACY", sub: "OPEN 24 HOURS", bg: "#0f7a45", fg: "#f3fff8", accent: "#ffffff" },
+  { title: "AIRTIME", sub: "ALL NETWORKS", bg: "#f2c200", fg: "#1a1404", accent: "#1a1404" },
+  { title: "KENKEY", sub: "WITH PEPPER", bg: "#f3e2a4", fg: "#2a2116", accent: "#9c2f1a" },
+  { title: "MOMO", sub: "CASH IN  ·  OUT", bg: "#5c2d82", fg: "#ffe56a", accent: "#ffe56a" },
+] as const;
+
+/** Readable Accra shop board. Textures are cached and shared across chunks. */
+export function accraSignTexture(index: number): THREE.CanvasTexture {
+  const sign = ACCRA_SIGNS[((index % ACCRA_SIGNS.length) + ACCRA_SIGNS.length) % ACCRA_SIGNS.length];
+  const key = `accra-sign-${sign.title}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const w = 512;
+  const h = 192;
+  const [c, g] = makeCanvas(w, h);
+  g.fillStyle = sign.bg;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "#ce1126";
+  g.fillRect(0, 0, w, 10);
+  g.fillStyle = "#fcd116";
+  g.fillRect(0, 10, w, 10);
+  g.fillStyle = "#006b3f";
+  g.fillRect(0, 20, w, 10);
+  g.strokeStyle = sign.accent;
+  g.lineWidth = 8;
+  g.strokeRect(8, 36, w - 16, h - 48);
+  g.fillStyle = sign.fg;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  let size = 78;
+  g.font = `800 ${size}px system-ui, sans-serif`;
+  while (g.measureText(sign.title).width > w - 64 && size > 46) {
+    size -= 4;
+    g.font = `800 ${size}px system-ui, sans-serif`;
+  }
+  g.fillText(sign.title, w / 2, 102);
+  g.font = "700 30px system-ui, sans-serif";
+  g.fillText(sign.sub, w / 2, 154);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  cache.set(key, t);
+  return t;
+}
+
+/** Dark compound earth so unbuilt gaps read as night ground, not noon dirt. */
+export function nightGroundTexture(): THREE.CanvasTexture {
+  const key = "night-ground";
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const [c, g] = makeCanvas(512, 512);
+  g.fillStyle = "#4a5142";
+  g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 7000; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const v = 50 + Math.random() * 40;
+    g.fillStyle = `rgba(${v + 10},${v + 6},${v - 4},0.35)`;
+    g.fillRect(x, y, 2, 2);
+  }
+  for (let i = 0; i < 18; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const grd = g.createRadialGradient(x, y, 4, x, y, 40 + Math.random() * 50);
+    grd.addColorStop(0, i % 2 === 0 ? "rgba(36,58,34,0.55)" : "rgba(92,62,42,0.4)");
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grd;
+    g.fillRect(x - 90, y - 90, 180, 180);
+  }
+  const t = toTexture(c, 1);
   cache.set(key, t);
   return t;
 }
