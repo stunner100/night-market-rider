@@ -36,7 +36,7 @@ export function applyVisualQuality(engine: Engine) {
       if (!(material instanceof THREE.MeshStandardMaterial) && !(material instanceof THREE.MeshPhysicalMaterial)) continue;
 
       const heroMaterial = object.name === "wheel" || object.name === "wheel-rim";
-      material.envMapIntensity = heroMaterial ? 0.38 : 0.62;
+      material.envMapIntensity = heroMaterial ? 0.22 : 0.34;
 
       const maps = [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.aoMap];
       for (const texture of maps) {
@@ -100,17 +100,16 @@ export function applyVisualQuality(engine: Engine) {
     }
   }
 
-  if (scene.fog instanceof THREE.FogExp2) scene.fog.density = mobile ? 0.0072 : 0.0061;
+  if (scene.fog instanceof THREE.FogExp2) scene.fog.density = mobile ? 0.0092 : 0.008;
 
-  // Extend the existing day/night function rather than creating another render
-  // loop. Exposure rises slightly at night while atmospheric haze deepens.
+  // Keep the night readable without lifting it back to daylight.
   const originalApplySky = engine.applySky.bind(engine);
   engine.applySky = (night: number) => {
     originalApplySky(night);
-    renderer.toneMappingExposure = (mobile ? 1.04 : 1.08) + night * 0.16;
+    renderer.toneMappingExposure = (mobile ? 0.92 : 0.98) + night * 0.04;
     if (scene.fog instanceof THREE.FogExp2) {
-      const dayFog = mobile ? 0.0072 : 0.0061;
-      scene.fog.density = dayFog + night * 0.0014;
+      const duskFog = mobile ? 0.0092 : 0.008;
+      scene.fog.density = duskFog + night * 0.0015;
     }
   };
 

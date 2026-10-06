@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { buildRoadGroup, disposeRoadGroup } from "./road-renderer";
 import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
 import { buildStreetDressingGroup, disposeStreetDressingGroup } from "./street-dressing";
+import { buildStreetFrontGroup, disposeStreetFrontGroup } from "./street-fronts";
+import { nightGroundTexture } from "../textures";
 import { buildPeopleGroup, disposePeopleGroup } from "./people";
 import { buildLandmarkGroup, disposeLandmarkGroup } from "./landmarks";
 import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment, pointInPolygon } from "./coordinates";
@@ -12,6 +14,7 @@ import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, Worl
 interface LoadedChunk {
   data: WorldChunk;
   group: THREE.Group;
+  blockers: WorldPoint[][];
 }
 
 export class AccraWorldRuntime {
@@ -36,7 +39,10 @@ export class AccraWorldRuntime {
 
     // Warmer, dustier tropical base than the old flat green plane. Roads,
     // compounds and vegetation now read against an Accra-like earth/grass mix.
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x8c8b61, roughness: 0.99, metalness: 0 });
+    const groundTex = nightGroundTexture();
+    groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+    groundTex.repeat.set(72, 72);
+    const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, color: 0x8e887c, roughness: 1, metalness: 0 });
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.03;
@@ -122,12 +128,14 @@ export class AccraWorldRuntime {
         if (this.loaded.has(key) || this.destroyed) return;
         const group = new THREE.Group();
         group.name = `osm-chunk-${key}`;
+        const fronts = buildStreetFrontGroup(data, this.mobile);
         group.add(buildRoadGroup(data.roads, this.mobile));
         group.add(buildBuildingGroup(data.buildings, this.mobile));
         group.add(buildStreetDressingGroup(data, this.mobile));
+        group.add(fronts.group);
         group.add(buildPeopleGroup(data, this.mobile));
         this.group.add(group);
-        this.loaded.set(key, { data, group });
+        this.loaded.set(key, { data, group, blockers: fronts.footprints });
         this.roadIndex.set(key, data.roads);
         this.absorbPois(data.pois);
         this.ready = true;
@@ -169,14 +177,10 @@ export class AccraWorldRuntime {
         const chunk = this.loaded.get(chunkKey(at.cx + dx, at.cz + dz));
         if (!chunk) continue;
         for (const building of chunk.data.buildings) {
-          const points = building.footprint;
-          if (points.length < 3) continue;
-          if (pointInPolygon(x, z, points)) return building.tags?.name || "building";
-          for (let i = 0; i < points.length; i++) {
-            const a = points[i];
-            const b = points[(i + 1) % points.length];
-            if (distancePointToSegment(x, z, a.x, a.z, b.x, b.z) <= radius) return building.tags?.name || "building";
-          }
+          if (this.footprintHit(x, z, radius, building.footprint)) return building.tags?.name || "building";
+        }
+        for (const footprint of chunk.blockers) {
+          if (this.footprintHit(x, z, radius, footprint)) return "market stall";
         }
       }
     }
@@ -268,6 +272,17 @@ export class AccraWorldRuntime {
     return this.locations.find(location => location.id === id) ?? null;
   }
 
+  private footprintHit(x: number, z: number, radius: number, points: WorldPoint[]): boolean {
+    if (points.length < 3) return false;
+    if (pointInPolygon(x, z, points)) return true;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      if (distancePointToSegment(x, z, a.x, a.z, b.x, b.z) <= radius) return true;
+    }
+    return false;
+  }
+
   private absorbPois(pois: WorldPoi[]): void {
     for (const poi of pois) {
       if (this.pois.some(existing => existing.id === poi.id)) continue;
@@ -279,10 +294,12 @@ export class AccraWorldRuntime {
     const roads = chunk.group.getObjectByName("osm-roads");
     const buildings = chunk.group.getObjectByName("osm-buildings");
     const dressing = chunk.group.getObjectByName("osm-street-dressing");
+    const fronts = chunk.group.getObjectByName("osm-street-fronts");
     const people = chunk.group.getObjectByName("osm-people");
     if (roads instanceof THREE.Group) disposeRoadGroup(roads);
     if (buildings instanceof THREE.Group) disposeBuildingGroup(buildings);
     if (dressing instanceof THREE.Group) disposeStreetDressingGroup(dressing);
+    if (fronts instanceof THREE.Group) disposeStreetFrontGroup(fronts);
     if (people instanceof THREE.Group) disposePeopleGroup(people);
     this.group.remove(chunk.group);
   }

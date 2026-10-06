@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { textTexture } from "../textures";
+import { ACCRA_SIGNS, accraSignTexture, textTexture } from "../textures";
 import type { WorldBuilding } from "./types";
 
 // More saturated, sun-faded Ghanaian facade colours instead of a single beige city.
@@ -16,7 +16,6 @@ const PALETTE = [
   0xefd8a5, // pale yellow
   0xb7aaa0, // cement brown
 ];
-const WINDOW = 0x24333b;
 const SHOP_PALETTE = [0xf2d34b, 0xd8583d, 0x2871b5, 0x23885e, 0x70468f];
 
 function hashInt(n: number): number {
@@ -78,14 +77,15 @@ function addBuildingLabel(group: THREE.Group, building: WorldBuilding, height: n
 }
 
 function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: number, seed: number, mobile: boolean): void {
-  if (mobile || building.footprint.length < 3) return;
+  if (building.footprint.length < 3) return;
   const pts = building.footprint;
-  const windowMat = new THREE.MeshStandardMaterial({ color: WINDOW, roughness: 0.38, metalness: 0.05 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0xf0e8da, roughness: 0.8, metalness: 0 });
+  const litWindow = new THREE.MeshBasicMaterial({ color: ((seed >> 2) & 1) ? 0xffd27a : 0xffb347 });
+  const darkWindow = new THREE.MeshBasicMaterial({ color: 0x12171c });
+  const doorMat = new THREE.MeshBasicMaterial({ color: ((seed >> 3) & 1) ? 0xffb15a : 0x241c16 });
   const shopMat = new THREE.MeshStandardMaterial({ color: SHOP_PALETTE[Math.abs(seed) % SHOP_PALETTE.length], roughness: 0.7 });
-  const isCommercial = !!building.tags?.shop || building.tags?.building === "commercial";
+  const isCommercial = !!building.tags?.shop || building.tags?.building === "commercial" || (seed & 3) === 0;
 
-  const maxEdges = Math.min(6, pts.length - 1);
+  const maxEdges = mobile ? 1 : Math.min(6, pts.length - 1);
   for (let i = 0; i < maxEdges; i++) {
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
@@ -94,46 +94,83 @@ function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: n
     const len = Math.hypot(dx, dz);
     if (len < 5) continue;
 
-    const levels = Math.max(1, Math.min(5, Math.round(height / 3.2)));
-    const windows = Math.max(1, Math.min(5, Math.floor(len / 5.5)));
+    const levels = Math.max(1, Math.min(mobile ? 2 : 5, Math.round(height / 3.2)));
+    const windows = Math.max(1, Math.min(mobile ? 3 : 5, Math.floor(len / 5.5)));
     const ux = dx / len;
     const uz = dz / len;
     const nx = -uz;
     const nz = ux;
-    const yaw = Math.atan2(dx, dz);
 
     for (let level = 0; level < levels; level++) {
       for (let w = 0; w < windows; w++) {
         if (((seed + i * 17 + level * 11 + w * 7) & 3) === 0) continue;
         const t = (w + 1) / (windows + 1);
-        const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.15), windowMat);
+        const lit = ((seed + i * 5 + level * 3 + w) & 3) !== 0;
+        const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.15), lit ? litWindow : darkWindow);
         pane.position.set(
           a.x + dx * t + nx * 0.055,
           Math.min(height - 0.8, 1.45 + level * 3.0),
           a.z + dz * t + nz * 0.055,
         );
-        pane.rotation.y = yaw + Math.PI;
+        pane.rotation.y = Math.atan2(nx, nz);
         group.add(pane);
       }
     }
 
     if (i === 0 && len > 6) {
       const t = 0.5;
-      const door = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 2.15), trimMat);
+      const door = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 2.15), doorMat);
       door.position.set(a.x + ux * len * t + nx * 0.06, 1.08, a.z + uz * len * t + nz * 0.06);
-      door.rotation.y = yaw + Math.PI;
+      door.rotation.y = Math.atan2(nx, nz);
       group.add(door);
 
       if (isCommercial) {
         const awning = new THREE.Mesh(new THREE.BoxGeometry(Math.min(6, len * 0.55), 0.12, 1.25), shopMat);
         awning.position.set(a.x + ux * len * 0.5 + nx * 0.65, 2.65, a.z + uz * len * 0.5 + nz * 0.65);
-        awning.rotation.y = yaw;
+        awning.rotation.y = Math.atan2(nx, nz);
         awning.rotation.x = -0.08;
         awning.castShadow = true;
         group.add(awning);
       }
     }
   }
+  addAccraShopSign(group, building, height, seed);
+}
+
+function addAccraShopSign(group: THREE.Group, building: WorldBuilding, height: number, seed: number): void {
+  const pts = building.footprint;
+  let bestLen = 0;
+  let bestI = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len > bestLen) {
+      bestLen = len;
+      bestI = i;
+    }
+  }
+  if (bestLen < 4.5) return;
+  const a = pts[bestI];
+  const b = pts[(bestI + 1) % pts.length];
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len = Math.hypot(dx, dz);
+  const ux = dx / len;
+  const uz = dz / len;
+  const nx = -uz;
+  const nz = ux;
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.min(5.4, len * 0.62), 1.2),
+    new THREE.MeshBasicMaterial({
+      map: accraSignTexture(Math.abs(seed) % ACCRA_SIGNS.length),
+      side: THREE.DoubleSide,
+    }),
+  );
+  sign.position.set(a.x + ux * len * 0.5 + nx * 0.14, Math.min(3.35, Math.max(2.4, height * 0.55)), a.z + uz * len * 0.5 + nz * 0.14);
+  sign.rotation.y = Math.atan2(nx, nz);
+  sign.name = "accra-building-sign";
+  group.add(sign);
 }
 
 export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): THREE.Group {

@@ -13,6 +13,8 @@ const WALKABLE = new Set(["primary", "secondary", "tertiary", "unclassified", "r
 const SKIN = [0x5b3828, 0x6f4530, 0x82533a, 0x9b6849, 0xb67e5c, 0xc88f6b];
 const SHIRTS = [0xf2e35c, 0xd94d3f, 0x2664a3, 0x1e8b65, 0x7b3f91, 0xf28c35, 0xe8e7df, 0x252a2f];
 const TROUSERS = [0x24262a, 0x303944, 0x49372c, 0x1f2730, 0x5a5149];
+const HAIR = [0x1a120e, 0x2a2118, 0x111111, 0x3b2414];
+const WRAPS = [0xf2e35c, 0xd94d3f, 0x1e8b65, 0x2664a3, 0xf4f1e8];
 
 function hash(value: string): number {
   let h = 2166136261;
@@ -49,7 +51,7 @@ function addFromRoad(road: WorldRoad, out: PersonPlacement[], limit: number, mob
     const nx = -dz / len;
     const nz = dx / len;
     const side = random(seed ^ 0xf221) > 0.5 ? 1 : -1;
-    const offset = road.width * 0.5 + 1.6 + random(seed ^ 0x88a3) * 2.8;
+    const offset = road.width * 0.5 + 1.45 + random(seed ^ 0x88a3) * 0.95;
     out.push({
       x: a.x + dx * t + nx * offset * side,
       z: a.z + dz * t + nz * offset * side,
@@ -96,7 +98,7 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
   const group = new THREE.Group();
   group.name = "osm-people";
   const placements: PersonPlacement[] = [];
-  const limit = mobile ? 10 : 24;
+  const limit = mobile ? 16 : 36;
 
   // Put people around actual mapped amenities first so the world feels inhabited
   // at banks, shops, restaurants, university facilities and other POIs.
@@ -128,18 +130,27 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
     addFromRoad(road, placements, limit, mobile);
   }
 
-  const legs = makeInstances(
-    new THREE.BoxGeometry(0.52, 0.86, 0.34),
-    placements,
-    TROUSERS,
-    (d, p) => {
-      d.position.set(p.x, 0.49 * p.scale, p.z);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(p.scale, p.scale, p.scale);
-    },
-    mobile,
-  );
-  if (legs) { legs.name = "accra-people-legs"; group.add(legs); }
+  const placeLeg = (side: number) => (d: THREE.Object3D, p: PersonPlacement) => {
+    d.position.set(p.x, 0.48 * p.scale, p.z);
+    d.rotation.set(0, p.yaw, 0);
+    d.translateX(side * 0.16 * p.scale);
+    d.scale.set(p.scale, p.scale, p.scale);
+  };
+  const leftLegs = makeInstances(new THREE.BoxGeometry(0.2, 0.86, 0.26), placements, TROUSERS, placeLeg(-1), mobile);
+  const rightLegs = makeInstances(new THREE.BoxGeometry(0.2, 0.86, 0.26), placements, TROUSERS, placeLeg(1), mobile);
+  if (leftLegs) { leftLegs.name = "accra-people-leg-l"; group.add(leftLegs); }
+  if (rightLegs) { rightLegs.name = "accra-people-leg-r"; group.add(rightLegs); }
+
+  const placeArm = (side: number) => (d: THREE.Object3D, p: PersonPlacement) => {
+    d.position.set(p.x, 1.28 * p.scale, p.z);
+    d.rotation.set(0, p.yaw, 0);
+    d.translateX(side * 0.42 * p.scale);
+    d.scale.set(p.scale, p.scale, p.scale);
+  };
+  const leftArms = makeInstances(new THREE.BoxGeometry(0.16, 0.62, 0.16), placements, SKIN, placeArm(-1), mobile);
+  const rightArms = makeInstances(new THREE.BoxGeometry(0.16, 0.62, 0.16), placements, SKIN, placeArm(1), mobile);
+  if (leftArms) { leftArms.name = "accra-people-arm-l"; group.add(leftArms); }
+  if (rightArms) { rightArms.name = "accra-people-arm-r"; group.add(rightArms); }
 
   const torsos = makeInstances(
     new THREE.BoxGeometry(0.72, 0.92, 0.42),
@@ -166,6 +177,33 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
     mobile,
   );
   if (heads) { heads.name = "accra-people-heads"; group.add(heads); }
+
+  const afros = placements.filter(p => (p.seed & 7) !== 1);
+  const wraps = placements.filter(p => (p.seed & 7) === 0);
+  const hair = makeInstances(
+    new THREE.SphereGeometry(0.24, 6, 5),
+    afros,
+    HAIR,
+    (d, p) => {
+      d.position.set(p.x, 2.22 * p.scale, p.z);
+      d.rotation.set(0, p.yaw, 0);
+      d.scale.set(p.scale * 1.08, p.scale * 0.62, p.scale);
+    },
+    mobile,
+  );
+  if (hair) { hair.name = "accra-people-hair"; group.add(hair); }
+  const headwraps = makeInstances(
+    new THREE.BoxGeometry(0.46, 0.16, 0.46),
+    wraps,
+    WRAPS,
+    (d, p) => {
+      d.position.set(p.x, 2.32 * p.scale, p.z);
+      d.rotation.set(0, p.yaw, 0);
+      d.scale.set(p.scale, p.scale, p.scale);
+    },
+    mobile,
+  );
+  if (headwraps) { headwraps.name = "accra-people-wraps"; group.add(headwraps); }
 
   return group;
 }

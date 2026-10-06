@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { accraSignTexture, ACCRA_SIGNS } from "../textures";
 import type { WorldChunk, WorldRoad } from "./types";
 
 const URBAN_ROADS = new Set([
   "primary", "secondary", "tertiary", "unclassified", "residential", "service",
 ]);
-const LIT_ROADS = new Set(["primary", "secondary", "tertiary", "unclassified"]);
+const LIT_ROADS = new Set(["primary", "secondary", "tertiary", "unclassified", "residential", "service"]);
 
 function hashString(value: string): number {
   let h = 2166136261;
@@ -110,7 +111,7 @@ function addTrees(group: THREE.Group, placements: Placement[], mobile: boolean):
 
   const crowns = createInstanced(
     new THREE.IcosahedronGeometry(1.75, 1),
-    new THREE.MeshStandardMaterial({ color: 0x4e713d, roughness: 0.93 }),
+    new THREE.MeshStandardMaterial({ color: 0x2a4a30, roughness: 0.95 }),
     placements,
     (d, p) => {
       const s = p.scale ?? 1;
@@ -179,14 +180,8 @@ function addStreetlights(group: THREE.Group, placements: Placement[], mobile: bo
   }
 
   const heads = createInstanced(
-    new THREE.BoxGeometry(0.95, 0.12, 0.28),
-    new THREE.MeshStandardMaterial({
-      color: 0xe9e5ce,
-      emissive: 0xffe7a8,
-      emissiveIntensity: 0.26,
-      roughness: 0.45,
-      metalness: 0.18,
-    }),
+    new THREE.BoxGeometry(0.95, 0.16, 0.32),
+    new THREE.MeshBasicMaterial({ color: 0xffd48a }),
     placements,
     (d, p) => {
       d.position.set(p.x, 6.25, p.z);
@@ -197,41 +192,6 @@ function addStreetlights(group: THREE.Group, placements: Placement[], mobile: bo
   if (heads) {
     heads.name = "accra-streetlight-heads";
     group.add(heads);
-  }
-}
-
-function addParkedCars(group: THREE.Group, placements: Placement[], mobile: boolean): void {
-  const bodies = createInstanced(
-    new THREE.BoxGeometry(1.55, 0.58, 3.45),
-    new THREE.MeshStandardMaterial({ color: 0xb7bdc2, roughness: 0.42, metalness: 0.28 }),
-    placements,
-    (d, p) => {
-      d.position.set(p.x, 0.48, p.z);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(1, 1, 1);
-    },
-  );
-  if (bodies) {
-    bodies.castShadow = !mobile;
-    bodies.receiveShadow = true;
-    bodies.name = "accra-parked-car-bodies";
-    group.add(bodies);
-  }
-
-  const cabins = createInstanced(
-    new THREE.BoxGeometry(1.34, 0.52, 1.65),
-    new THREE.MeshStandardMaterial({ color: 0x33434d, roughness: 0.32, metalness: 0.22 }),
-    placements,
-    (d, p) => {
-      d.position.set(p.x, 0.98, p.z - Math.cos(p.yaw) * 0.05);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(1, 1, 1);
-    },
-  );
-  if (cabins) {
-    cabins.castShadow = !mobile;
-    cabins.name = "accra-parked-car-cabins";
-    group.add(cabins);
   }
 }
 
@@ -275,10 +235,10 @@ function addKiosks(group: THREE.Group, chunk: WorldChunk, mobile: boolean): void
     kiosk.add(awning);
 
     const sign = new THREE.Mesh(
-      new THREE.BoxGeometry(2.25, 0.52, 0.09),
-      new THREE.MeshBasicMaterial({ color: poi.tags?.shop ? 0x702963 : 0xf2e35c }),
+      new THREE.PlaneGeometry(2.35, 0.78),
+      new THREE.MeshBasicMaterial({ map: accraSignTexture(seed % ACCRA_SIGNS.length), side: THREE.DoubleSide }),
     );
-    sign.position.set(0, 2.7, 0.9);
+    sign.position.set(0, 2.62, 1.08);
     kiosk.add(sign);
 
     kiosk.position.set(poi.x + (rand01(seed ^ 19) - 0.5) * 4, 0.02, poi.z + (rand01(seed ^ 47) - 0.5) * 4);
@@ -295,19 +255,17 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
   const trees: Placement[] = [];
   const poles: Placement[] = [];
   const lights: Placement[] = [];
-  const cars: Placement[] = [];
 
-  const maxTrees = mobile ? 36 : 82;
+  const maxTrees = mobile ? 28 : 56;
   const maxPoles = mobile ? 18 : 42;
-  const maxLights = mobile ? 14 : 34;
-  const maxCars = mobile ? 8 : 18;
+  const maxLights = mobile ? 22 : 64;
 
   for (const road of chunk.roads) {
     if (!URBAN_ROADS.has(road.highway)) continue;
     const edge = road.width * 0.5;
     for (let i = 0; i < road.points.length - 1; i++) {
       if (trees.length < maxTrees) {
-        sampleRoad(road, i, mobile ? 64 : 44, edge + 5.2, p => {
+        sampleRoad(road, i, mobile ? 72 : 48, edge + 8.8, p => {
           if (trees.length < maxTrees && rand01(p.seed ^ 0x93ab) > 0.22) trees.push(p);
         });
       }
@@ -317,13 +275,8 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
         });
       }
       if (LIT_ROADS.has(road.highway) && lights.length < maxLights) {
-        sampleRoad(road, i, mobile ? 78 : 52, edge + 2.25, p => {
+        sampleRoad(road, i, mobile ? 64 : 36, edge + 1.7, p => {
           if (lights.length < maxLights) lights.push(p);
-        });
-      }
-      if (!mobile && road.width >= 5.5 && cars.length < maxCars) {
-        sampleRoad(road, i, 96, edge + 1.05, p => {
-          if (cars.length < maxCars && rand01(p.seed ^ 0x44f1) > 0.52) cars.push(p);
         });
       }
     }
@@ -332,7 +285,6 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
   addTrees(group, trees, mobile);
   addPoles(group, poles, mobile);
   addStreetlights(group, lights, mobile);
-  addParkedCars(group, cars, mobile);
   addKiosks(group, chunk, mobile);
 
   return group;
