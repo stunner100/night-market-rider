@@ -12,6 +12,7 @@ import { buildMinimapFrame, type MinimapFrame } from "./world/minimap-data";
 import { cueFromRoute } from "./world/navigation";
 import { OsmGameplay } from "./world/osm-gameplay";
 import { chooseRoadside } from "./world/roadside-placement";
+import { BIKE_BODY_RADIUS, WALK_SPEED, canRemount, chooseDismountPoint, stepWalk } from "./world/on-foot";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -55,6 +56,10 @@ export class Engine {
   input: Input = { up: false, down: false, left: false, right: false, boost: false };
   // player
   px = 0; pz = -18; heading = Math.PI; speed = 0;
+  onFoot = false;
+  bikeX = 0; bikeZ = -18; bikeHeading = Math.PI;
+  walker: HumanoidRig;
+  walkMoving = false;
   vy = 0; py = 0; bump = 0; shake = 0;
   boostOn = false;
   crashCool = 0; potCool = 0; nearCool = 0; coinCool = 0;
@@ -119,6 +124,12 @@ export class Engine {
     this.osmWorld = new AccraWorldRuntime(this.scene, this.isMobile);
     this.rig = buildRider();
     this.scene.add(this.rig.group);
+    this.walker = buildHumanoid({
+      skin: 0x5d3a1a, shirt: 0xf2e35c, pants: 0x26394a, shoes: 0x151719,
+      hair: "short", hairColor: 0x1a120c, longSleeves: true, detail: "full",
+    });
+    this.walker.group.visible = false;
+    this.scene.add(this.walker.group);
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
     // nav chevrons
@@ -226,6 +237,7 @@ export class Engine {
     }
     this.audio.ensure();
     this._applyKey(e.code, true);
+    if (e.code === "KeyF" && !e.repeat) this.toggleFoot();
     if (e.code === "KeyH" && !e.repeat) { this.audio.horn(); useGame.getState().pushToast("📯 Poooop!"); }
     if (e.code === "Enter") this.confirm();
   };
@@ -253,6 +265,81 @@ export class Engine {
     if (s.phase === "offer") this.acceptOrder();
   }
 
+  toggleFoot() {
+    const s = useGame.getState();
+    if (s.paused) return;
+    const allowed = s.phase === "offer" || s.phase === "toPickup" || s.phase === "toDropoff" || s.phase === "pickup" || s.phase === "deliver" || s.phase === "delivered";
+    if (!allowed) return;
+    if (!this.onFoot) {
+      if (s.phase === "pickup" || s.phase === "deliver") {
+        s.pushToast("Finish the handoff, then hop off.");
+        return;
+      }
+      const spot = chooseDismountPoint(this.px, this.pz, this.heading, (x, z) => this.footBlocked(x, z, false));
+      this.bikeX = this.px;
+      this.bikeZ = this.pz;
+      this.bikeHeading = this.heading;
+      this.px = spot.x;
+      this.pz = spot.z;
+      this.speed = 0;
+      this.boostOn = false;
+      this.onFoot = true;
+      this.walkMoving = false;
+      s.set({ onFoot: true, nearBike: true });
+      s.pushToast("On foot. WASD to walk — F remounts the bike.");
+      return;
+    }
+    if (!canRemount(this.px, this.pz, this.bikeX, this.bikeZ)) {
+      s.pushToast("Walk back to your okada to remount.");
+      return;
+    }
+    this.px = this.bikeX;
+    this.pz = this.bikeZ;
+    this.heading = this.bikeHeading;
+    this.speed = 0;
+    this.onFoot = false;
+    this.walkMoving = false;
+    s.set({ onFoot: false, nearBike: false });
+    s.pushToast("Back on the bike.");
+  }
+
+  private footBlocked(x: number, z: number, bike: boolean): boolean {
+    if (this.osmActive) {
+      if (this.osmWorld.collidesBuilding(x, z, 0.42)) return true;
+    } else {
+      for (const col of this.world.colliders) {
+        if (x >= col.minX && x <= col.maxX && z >= col.minZ && z <= col.maxZ) return true;
+      }
+    }
+    return bike && Math.hypot(x - this.bikeX, z - this.bikeZ) < BIKE_BODY_RADIUS;
+  }
+
+  private stepOnFoot(dt: number) {
+    const forward = (this.input.up ? 1 : 0) - (this.input.down ? 1 : 0);
+    const turn = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
+    const command = {
+      forward: forward > 0 ? 1 : forward < 0 ? -1 : 0,
+      turn: turn > 0 ? 1 : turn < 0 ? -1 : 0,
+    } as const;
+    const next = stepWalk(
+      { x: this.px, z: this.pz, heading: this.heading },
+      command,
+      dt,
+      (x, z) => this.footBlocked(x, z, true),
+    );
+    if (this.osmActive) {
+      this.px = THREE.MathUtils.clamp(next.x, -2500, 3800);
+      this.pz = THREE.MathUtils.clamp(next.z, -3200, 1600);
+    } else {
+      this.px = THREE.MathUtils.clamp(next.x, -98, 98);
+      this.pz = THREE.MathUtils.clamp(next.z, -98, 98);
+    }
+    this.heading = next.heading;
+    this.walkMoving = next.moving;
+    this.speed = 0;
+    this.boostOn = false;
+  }
+
   pauseGame() {
     const s = useGame.getState();
     if (s.paused) return;
@@ -270,7 +357,9 @@ export class Engine {
 
   quitToMenu() {
     const s = useGame.getState();
-    s.set({ paused: false, phase: "menu", order: null, banner: null, timeLeft: 0, turnHint: "" });
+    s.set({ paused: false, phase: "menu", order: null, banner: null, timeLeft: 0, turnHint: "", onFoot: false, nearBike: false });
+    this.onFoot = false;
+    this.walkMoving = false;
     this.audio.setPaused(false);
     this.audio.setEngine(0, false);
     this.clearNPCs();
@@ -291,8 +380,10 @@ export class Engine {
       phase: "countdown", countdown: 3, order: null, orderIndex: 0,
       earnings: 0, xp: 0, deliveries: 0, streak: 0, bestStreak: 0,
       rating: 5.0, ratingsCount: 0, score: 0, strikes: 0, timeLeft: 0,
-      lastDelivery: null, banner: null, fuel: 100, paused: false,
+      lastDelivery: null, banner: null, fuel: 100, paused: false, onFoot: false, nearBike: false,
     });
+    this.onFoot = false;
+    this.walkMoving = false;
     this.audio.setPaused(false);
     this._fuelWarned = false;
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0;
@@ -607,7 +698,7 @@ export class Engine {
     }
 
     const riding = ["offer", "toPickup", "pickup", "toDropoff", "deliver"].includes(phase);
-    const canDrive = ["offer", "toPickup", "toDropoff"].includes(phase);
+    const canDrive = ["offer", "toPickup", "toDropoff"].includes(phase) && !this.onFoot;
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
@@ -632,7 +723,7 @@ export class Engine {
       s.fuel = Math.max(0, s.fuel - fuelRate * dt);
     }
     // Out of fuel — can't accelerate
-    if (s.fuel <= 0) {
+    if (!this.onFoot && s.fuel <= 0) {
       this.speed = Math.max(0, this.speed - 12 * dt); // coast to stop
       if (this.speed < 0.5 && this._fuelWarned !== true) {
         this._fuelWarned = true;
@@ -646,22 +737,26 @@ export class Engine {
       const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
       this.heading += steer * 2.1 * steerAuthority * dt * (this.boostOn ? 0.8 : 1);
     }
-    const nx = this.px + Math.sin(this.heading) * this.speed * dt;
-    const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
-    if (this.osmActive) {
-      this.px = THREE.MathUtils.clamp(nx, -2500, 3800);
-      this.pz = THREE.MathUtils.clamp(nz, -3200, 1600);
+    if (this.onFoot) {
+      this.stepOnFoot(dt);
     } else {
-      this.px = THREE.MathUtils.clamp(nx, -98, 98);
-      this.pz = THREE.MathUtils.clamp(nz, -98, 98);
-    }
+      const nx = this.px + Math.sin(this.heading) * this.speed * dt;
+      const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
+      if (this.osmActive) {
+        this.px = THREE.MathUtils.clamp(nx, -2500, 3800);
+        this.pz = THREE.MathUtils.clamp(nz, -3200, 1600);
+      } else {
+        this.px = THREE.MathUtils.clamp(nx, -98, 98);
+        this.pz = THREE.MathUtils.clamp(nz, -98, 98);
+      }
 
-    if (this.osmActive && riding && this.crashCool <= 0) {
-      const hit = this.osmWorld.collidesBuilding(this.px, this.pz, 0.9);
-      if (hit) {
-        this.px -= Math.sin(this.heading) * this.speed * dt * 1.5;
-        this.pz -= Math.cos(this.heading) * this.speed * dt * 1.5;
-        this.crash(`💥 Collided with ${hit}! Easy oo.`);
+      if (this.osmActive && riding && this.crashCool <= 0) {
+        const hit = this.osmWorld.collidesBuilding(this.px, this.pz, 0.9);
+        if (hit) {
+          this.px -= Math.sin(this.heading) * this.speed * dt * 1.5;
+          this.pz -= Math.cos(this.heading) * this.speed * dt * 1.5;
+          this.crash(`💥 Collided with ${hit}! Easy oo.`);
+        }
       }
     }
 
@@ -706,7 +801,7 @@ export class Engine {
     }
 
     // Solid world building collisions (stops phasing through walls!)
-    if (riding && this.crashCool <= 0 && this.world.colliders) {
+    if (riding && !this.onFoot && this.crashCool <= 0 && this.world.colliders) {
       for (const col of this.world.colliders) {
         if (this.px >= col.minX && this.px <= col.maxX && this.pz >= col.minZ && this.pz <= col.maxZ) {
           this.crash(`💥 Collided with ${col.name}! Easy oo.`);
@@ -720,7 +815,7 @@ export class Engine {
       }
     }
 
-    if (riding) {
+    if (riding && !this.onFoot) {
       for (const c of activeTraffic) {
         if (!c.mesh.visible) continue;
         const d = Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z);
@@ -893,7 +988,7 @@ export class Engine {
 
     // particles: dust + exhaust
     this.dustTimer -= dt;
-    if ((Math.abs(this.speed) > 14 || !this.onRoad(this.px, this.pz)) && this.dustTimer <= 0 && this.py === 0) {
+    if (!this.onFoot && (Math.abs(this.speed) > 14 || !this.onRoad(this.px, this.pz)) && this.dustTimer <= 0 && this.py === 0) {
       this.dustTimer = 0.06;
       this.spawnPuff(this.px - Math.sin(this.heading) * 1.2, 0.3, this.pz - Math.cos(this.heading) * 1.2, this.onRoad(this.px, this.pz) ? 0xcccccc : 0xc2a06b, 1, 1);
     }
@@ -921,7 +1016,7 @@ export class Engine {
     this.updateNav(o, phase);
     this.updateCamera(dt, false);
     this.applySky(this.nightF);
-    this.audio.setEngine(Math.min(1, Math.abs(this.speed) / 37), this.boostOn);
+    this.audio.setEngine(this.onFoot ? 0 : Math.min(1, Math.abs(this.speed) / 37), this.onFoot ? false : this.boostOn);
     if (s.banner && phase === "gameover") s.set({ banner: null });
 
     // throttled HUD sync
@@ -951,38 +1046,48 @@ export class Engine {
       } else if (!this.osmActive) {
         distUnits = worldUnitsToMetres(distUnits, "procedural");
       }
-      s.set({ speedKmh: Math.round(Math.abs(this.speed) * (this.osmActive ? 3.6 : 3.2)), distM: distUnits, turnHint });
+      const nearBike = this.onFoot && canRemount(this.px, this.pz, this.bikeX, this.bikeZ);
+      const speedKmh = this.onFoot
+        ? Math.round((this.walkMoving ? WALK_SPEED : 0) * 3.6)
+        : Math.round(Math.abs(this.speed) * (this.osmActive ? 3.6 : 3.2));
+      s.set({ speedKmh, distM: distUnits, turnHint, nearBike });
     }
     this.shake = Math.max(0, this.shake - dt * 2.2);
   }
 
   syncRig(dt: number, t: number, step: number) {
-    this.rig.group.position.set(this.px, this.py, this.pz);
-    this.rig.group.rotation.y = this.heading;
-    const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
-    const stopped = Math.abs(this.speed) < 1.5;
+    const parked = this.onFoot;
+    const bikeX = parked ? this.bikeX : this.px;
+    const bikeZ = parked ? this.bikeZ : this.pz;
+    const bikeHeading = parked ? this.bikeHeading : this.heading;
+    const bikeSpeed = parked ? 0 : this.speed;
+    this.rig.group.position.set(bikeX, parked ? 0 : this.py, bikeZ);
+    this.rig.group.rotation.y = bikeHeading;
+    const steer = parked ? 0 : (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
+    const stopped = Math.abs(bikeSpeed) < 1.5;
     // bike tilts slightly left when the rider plants a foot at a stop
-    const leanTarget = -steer * Math.min(0.45, Math.abs(this.speed) / 60) + Math.sin(t * 1.3) * 0.015 + (stopped ? 0.12 : 0);
+    const leanTarget = -steer * Math.min(0.45, Math.abs(bikeSpeed) / 60) + Math.sin(t * 1.3) * 0.015 + (stopped ? 0.12 : 0);
     this.rig.lean.rotation.z += (leanTarget - this.rig.lean.rotation.z) * Math.min(1, 8 * (step || 0.016));
-    this.rig.lean.rotation.x = this.py > 0 ? -0.12 : THREE.MathUtils.clamp(-this.speed * 0.002, -0.06, 0) + (this.bump > 0 ? Math.sin(t * 40) * 0.02 : 0);
+    this.rig.lean.rotation.x = !parked && this.py > 0 ? -0.12 : THREE.MathUtils.clamp(-bikeSpeed * 0.002, -0.06, 0) + (this.bump > 0 ? Math.sin(t * 40) * 0.02 : 0);
     this.bump = Math.max(0, this.bump - (step || 0.016));
     // wheels
-    this.rig.frontWheel.rotation.x += this.speed * (step || 0.016) * 2;
-    this.rig.rearWheel.rotation.x += this.speed * (step || 0.016) * 2;
+    this.rig.frontWheel.rotation.x += bikeSpeed * (step || 0.016) * 2;
+    this.rig.rearWheel.rotation.x += bikeSpeed * (step || 0.016) * 2;
     // Drop the hips when stopped so the left foot can reach the road. Tuck on boost.
-    const sit = this.boostOn ? -0.08 : stopped ? -0.07 : 0;
+    const sit = !parked && this.boostOn ? -0.08 : stopped ? -0.07 : 0;
     const sitK = Math.min(1, (step || 0.016) * 6);
     this.rig.body.position.y += (sit - this.rig.body.position.y) * sitK;
-    this.rig.body.rotation.x += ((this.boostOn ? 0.07 : 0) - this.rig.body.rotation.x) * sitK;
+    this.rig.body.rotation.x += (((!parked && this.boostOn) ? 0.07 : 0) - this.rig.body.rotation.x) * sitK;
     (this.rig.brakeLight.material as THREE.MeshBasicMaterial).color.setHex(this.input.down ? 0xff2222 : 0x550000);
     this.rig.headlight.intensity = this.nightF > 0.35 ? 28 : 0;
     const r = this.rig.rider;
     if (r) {
       const phase = useGame.getState().phase;
       const interact = phase === "pickup" ? "pickup" : phase === "deliver" ? "deliver" : "none";
+      r.group.visible = !parked;
       poseRider(r, {
-        t, dt: step || 0.016, steer, speed: this.speed, stopped,
-        braking: this.input.down, boost: this.boostOn, interact,
+        t, dt: step || 0.016, steer, speed: bikeSpeed, stopped,
+        braking: !parked && this.input.down, boost: !parked && this.boostOn, interact: parked ? "none" : interact,
       }, {
         gripL: this.rig.gripL,
         gripR: this.rig.gripR,
@@ -990,8 +1095,16 @@ export class Engine {
         pegR: this.rig.pegR,
         footDown: this.rig.footDown,
         frame: this.rig.lean,
-        reach: interact === "pickup" ? this.vendorNPC : interact === "deliver" ? this.customerNPC : null,
+        reach: !parked && interact === "pickup" ? this.vendorNPC : !parked && interact === "deliver" ? this.customerNPC : null,
       });
+    }
+    this.walker.group.visible = parked;
+    if (parked) {
+      this.walker.group.position.x = this.px;
+      this.walker.group.position.z = this.pz;
+      this.walker.group.rotation.y = this.heading;
+      if (this.walkMoving) animateWalk(this.walker, t, 5.4);
+      else animateIdle(this.walker, t, 0.4);
     }
   }
 
@@ -1094,8 +1207,8 @@ export class Engine {
       if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
       return;
     }
-    const back = 8.6 + Math.abs(this.speed) * 0.05;
-    const h = 4.1 + Math.abs(this.speed) * 0.02;
+    const back = this.onFoot ? 4.7 : 8.6 + Math.abs(this.speed) * 0.05;
+    const h = this.onFoot ? 2.35 : 4.1 + Math.abs(this.speed) * 0.02;
     const dx = this.px - Math.sin(this.heading) * back;
     const dz = this.pz - Math.cos(this.heading) * back;
     const lag = Math.min(1, dt * (4.2 - Math.min(1.5, Math.abs(this.speed) / 30)));
@@ -1111,11 +1224,12 @@ export class Engine {
 
     // Look-ahead camera tracking with steering bias
     const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
-    const lookX = this.px + Math.sin(this.heading) * 6.5 + steer * 1.3;
-    const lookZ = this.pz + Math.cos(this.heading) * 6.5;
-    this.camera.lookAt(lookX, 1.6 + this.py * 0.2, lookZ);
+    const lookAhead = this.onFoot ? 2.2 : 6.5;
+    const lookX = this.px + Math.sin(this.heading) * lookAhead + steer * (this.onFoot ? 0 : 1.3);
+    const lookZ = this.pz + Math.cos(this.heading) * lookAhead;
+    this.camera.lookAt(lookX, (this.onFoot ? 1.25 : 1.6) + this.py * 0.2, lookZ);
 
-    const wantFov = this.boostOn ? 75 : 62 + Math.min(6, Math.abs(this.speed) * 0.15);
+    const wantFov = this.onFoot ? 58 : this.boostOn ? 75 : 62 + Math.min(6, Math.abs(this.speed) * 0.15);
     const prevFov = this.camera.fov;
     this.camera.fov += (wantFov - this.camera.fov) * Math.min(1, dt * 5);
     if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();

@@ -52,6 +52,8 @@ interface GameState {
   speedKmh: number;
   distM: number;
   turnHint: string;
+  onFoot: boolean;
+  nearBike: boolean;
   banner: string | null;
   toasts: Toast[];
   sound: boolean;
@@ -96,6 +98,8 @@ export const useGame = create<GameState>((set, get) => ({
   speedKmh: 0,
   distM: 0,
   turnHint: "",
+  onFoot: false,
+  nearBike: false,
   banner: null,
   toasts: [],
   sound: true,

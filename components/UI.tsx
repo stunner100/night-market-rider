@@ -261,7 +261,7 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
               <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowHelp(true)}>How to Play</button>
               <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => { const v = !s.sound; s.set({ sound: v }); if (eng) eng.audio.setEnabled(v); }}>Sound {s.sound ? "ON" : "OFF"}</button>
             </div>
-            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · S/↓ brake · A D steer · SPACE boost · H horn · ESC pause</p>
+            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · S/↓ brake · A D steer · SPACE boost · F get off / remount · H horn · ESC pause</p>
           </div>
         </div>
       )}
@@ -297,6 +297,9 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
             {!s.paused && (
               <button className="btn btn-ghost" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => eng?.pauseGame()}>⏸ PAUSE</button>
             )}
+            <button className="btn btn-ghost" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => eng?.toggleFoot()}>
+              {s.onFoot ? (s.nearBike ? "F MOUNT" : "ON FOOT") : "F GET OFF"}
+            </button>
           </div>
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)" }}>
             <span className="pill" style={{ fontSize: 16, borderColor: s.timeLeft < 15 && (s.phase === "toDropoff" || s.phase === "toPickup") ? "#ff6b6b" : "rgba(255,255,255,0.16)" }}>
@@ -338,8 +341,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
             ◀ STEER ▶
           </div>
           <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 8 }}>
-            <div className="touch-btn" {...hold("down")}>BRAKE</div>
-            <div className="touch-btn" {...hold("up")}>GAS</div>
+            <div className="touch-btn" {...hold("down")}>{s.onFoot ? "BACK" : "BRAKE"}</div>
+            <div className="touch-btn" {...hold("up")}>{s.onFoot ? "WALK" : "GAS"}</div>
             <div className="touch-btn" {...hold("boost")}>BOOST</div>
           </div>
         </>
@@ -431,7 +434,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
                   3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
                   4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
                   5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster.<br />
-                  6. Night Market coins add score, XP, and a little boost.
+                  6. Night Market coins add score, XP, and a little boost.<br />
+                  7. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.
                 </div>
               </>
             )}
