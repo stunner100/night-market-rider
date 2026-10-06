@@ -9,8 +9,14 @@ function fmtTime(seconds: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function distanceLabel(metres: number): string {
+  if (!Number.isFinite(metres) || metres < 1) return "…";
+  return formatMetres(metres);
+}
+
 function etaLabel(metres: number, kmh: number): string {
-  if (!Number.isFinite(metres) || metres < 40) return "here";
+  if (!Number.isFinite(metres) || metres < 1) return "…";
+  if (metres < 40) return "here";
   const speed = Math.max(18, kmh);
   const mins = Math.max(1, Math.round((metres / 1000) / speed * 60));
   return mins === 1 ? "~1 min" : `~${mins} min`;
@@ -90,7 +96,7 @@ export default function DeliveryPhone({ onAccept }: { onAccept: () => void }) {
         <div className="nm-phone-sub">{who}</div>
         {phase !== "delivered" && (
           <div className="nm-phone-meta">
-            <span>{formatMetres(s.distM)}</span>
+            <span>{distanceLabel(s.distM)}</span>
             <span>{etaLabel(s.distM, s.speedKmh)}</span>
           </div>
         )}
