@@ -168,8 +168,13 @@ export class Engine {
   private _activeEvents: ActiveNightEvent[] = [];
   private _eventFogBoost = 0;
   private _rainTimer = 0;
+  private _menuReadyResolve: (() => void) | null = null;
+  readonly menuReady: Promise<void>;
 
   constructor(public canvas: HTMLCanvasElement) {
+    this.menuReady = new Promise<void>((resolve) => {
+      this._menuReadyResolve = resolve;
+    });
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
     this.quality = this.isMobile ? "low" : "high";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile });
@@ -222,11 +227,22 @@ export class Engine {
     void this.initializeAccraWorld();
   }
 
+  private finishMenuReady() {
+    this._menuReadyResolve?.();
+    this._menuReadyResolve = null;
+  }
+
   private async initializeAccraWorld() {
     const available = await this.osmWorld.initialize();
-    if (!available || !this.running) return;
+    if (!available || !this.running) {
+      this.finishMenuReady();
+      return;
+    }
     await this.osmWorld.prime(this.px, this.pz);
-    if (!this.osmWorld.ready || !this.running) return;
+    if (!this.osmWorld.ready || !this.running) {
+      this.finishMenuReady();
+      return;
+    }
 
     // Preserve mission markers while hiding the old handcrafted city.
     this.scene.attach(this.world.pickupMarker);
@@ -244,41 +260,64 @@ export class Engine {
     this.world.colliders.length = 0;
 
     this.applyMenuShowcase();
+    await this.primeMenuChunks(this.menuAnchorX, this.menuAnchorZ);
     this.osmActive = true;
     this.osmPlay = new OsmGameplay(this.scene, this.osmWorld, this.isMobile);
     this.osmPlay.start(this.menuAnchorX, this.menuAnchorZ);
+    this.osmPlay.warmMenuScene(this.menuAnchorX, this.menuAnchorZ, this.menuAnchorHeading, this.isMobile);
     useGame.getState().pushToast("🗺️ Real Accra map loaded");
+    this.finishMenuReady();
   }
 
-  /** Frame the title screen on a busy Accra junction with shops and traffic. */
+  private async primeMenuChunks(x: number, z: number) {
+    const offsets = this.isMobile
+      ? [[0, 0], [36, 0], [-36, 0], [0, 36]]
+      : [[0, 0], [60, 0], [-60, 0], [0, 60], [0, -60], [45, 45], [-45, -45], [45, -45]];
+    for (const [ox, oz] of offsets) {
+      if (!this.running) return;
+      await this.osmWorld.update(x + ox, z + oz, true);
+    }
+  }
+
+  /** Frame the title on a busy Legon/Okponglo corridor with shops, palms, and traffic in view. */
   private applyMenuShowcase() {
-    const loc = this.osmWorld.getLocation("okponglo");
-    const fallback = loc ?? { x: 280, z: 192 };
-    let x = fallback.x;
-    let z = fallback.z;
-    const frame = this.osmWorld.nearestRoadFrame(x, z, 90);
-    if (frame) {
+    const pick = ["legon-traffic-light", "okponglo", "night-market"];
+    let x = 280;
+    let z = 192;
+    let heading = Math.PI * 0.35;
+    for (const id of pick) {
+      const loc = this.osmWorld.getLocation(id);
+      if (!loc) continue;
+      const frame = this.osmWorld.nearestRoadFrame(loc.x, loc.z, 100);
+      if (!frame) continue;
       x = frame.x;
       z = frame.z;
-      this.menuAnchorHeading = Math.atan2(frame.tangentX, frame.tangentZ);
+      heading = Math.atan2(frame.tangentX, frame.tangentZ);
+      break;
     }
     this.menuAnchorX = x;
     this.menuAnchorZ = z;
+    this.menuAnchorHeading = heading;
     this.px = x;
     this.pz = z;
-    this.heading = this.menuAnchorHeading;
+    this.heading = heading;
     this.bikeX = x;
     this.bikeZ = z;
-    this.bikeHeading = this.menuAnchorHeading;
+    this.bikeHeading = heading;
+    this.camPos.set(
+      x + Math.sin(heading + 0.6) * 12,
+      this.isMobile ? 4.2 : 5.2,
+      z + Math.cos(heading + 0.6) * 12,
+    );
     void this.osmWorld.update(x, z, true);
   }
 
   private syncMenuPose(elapsedSec: number) {
-    const drift = Math.sin(elapsedSec * 0.12) * 2.8;
-    const along = Math.cos(elapsedSec * 0.09) * 1.6;
+    const drift = Math.sin(elapsedSec * 0.1) * (this.isMobile ? 2.2 : 3.4);
+    const along = Math.cos(elapsedSec * 0.07) * (this.isMobile ? 1.2 : 2.2);
     this.px = this.menuAnchorX + Math.sin(this.menuAnchorHeading) * drift + Math.cos(this.menuAnchorHeading) * along;
     this.pz = this.menuAnchorZ + Math.cos(this.menuAnchorHeading) * drift - Math.sin(this.menuAnchorHeading) * along;
-    this.heading = this.menuAnchorHeading + Math.sin(elapsedSec * 0.14) * 0.06;
+    this.heading = this.menuAnchorHeading + Math.sin(elapsedSec * 0.11) * 0.05;
     this.speed = 0;
   }
 
@@ -1393,21 +1432,23 @@ export class Engine {
   updateCamera(dt: number, menu: boolean) {
     const t = performance.now() / 1000;
     if (menu) {
-      const a = t * 0.22;
-      const orbit = 10.5;
-      const hd = this.heading;
+      const a = t * (this.isMobile ? 0.2 : 0.14);
+      const orbit = this.isMobile ? 9.5 : 14.5;
+      const camH = this.isMobile ? 3.9 : 5.1;
+      const hd = this.menuAnchorHeading;
       _menuTarget.set(
-        this.px + Math.sin(a + hd) * orbit,
-        4.1,
-        this.pz + Math.cos(a + hd) * orbit,
+        this.px + Math.sin(a + hd + 0.35) * orbit,
+        camH + Math.sin(t * 0.09) * 0.25,
+        this.pz + Math.cos(a + hd + 0.35) * orbit,
       );
-      this.camPos.lerp(_menuTarget, Math.min(1, dt * 2));
+      this.camPos.lerp(_menuTarget, Math.min(1, dt * 1.6));
       this.camera.position.copy(this.camPos);
-      const lookX = this.px + Math.sin(hd) * 14;
-      const lookZ = this.pz + Math.cos(hd) * 14;
-      this.camera.lookAt(lookX, 2.1, lookZ);
+      const lookX = this.px + Math.sin(hd) * 18;
+      const lookZ = this.pz + Math.cos(hd) * 18;
+      this.camera.lookAt(lookX, 2.35, lookZ);
       const prevFov = this.camera.fov;
-      this.camera.fov += (56 - this.camera.fov) * dt * 2;
+      const wantFov = this.isMobile ? 56 : 54;
+      this.camera.fov += (wantFov - this.camera.fov) * dt * 1.8;
       if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
       return;
     }
@@ -1449,6 +1490,7 @@ export class Engine {
 
   dispose() {
     this.running = false;
+    this.finishMenuReady();
     if (this._bannerTimer) { clearTimeout(this._bannerTimer); this._bannerTimer = null; }
     window.removeEventListener("resize", this.resize);
     window.removeEventListener("keydown", this._onKeyDown);

@@ -31,6 +31,23 @@ export class OsmGameplay {
     console.info(`Accra gameplay online: traffic pool ready, ${this.fuel.bodies().length} fuel stations`);
   }
 
+  /** Simulate traffic & walkers so the title screen feels alive before the menu opens. */
+  warmMenuScene(x: number, z: number, heading: number, mobile: boolean): void {
+    const vehicleTarget = mobile ? 7 : 18;
+    const pedTarget = mobile ? 5 : 14;
+    const steps = mobile ? 30 : 58;
+    for (let i = 0; i < steps; i++) {
+      const elapsed = i * 0.09;
+      this.update(0.09, x, z, elapsed, [], heading);
+    }
+    this.traffic.warmStart(x, z, heading, vehicleTarget);
+    this.pedestrians.warmStart(x, z, heading, pedTarget);
+    const extra = mobile ? 14 : 28;
+    for (let i = 0; i < extra; i++) {
+      this.update(0.11, x, z, steps * 0.09 + i * 0.11, [], heading);
+    }
+  }
+
   update(dt: number, x: number, z: number, elapsed: number, zones: KeepClear[], heading = 0): void {
     this.traffic.update(dt, x, z, heading);
     this.pedestrians.update(dt, elapsed, x, z, heading);

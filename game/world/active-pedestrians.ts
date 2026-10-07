@@ -97,6 +97,18 @@ export class ActivePedestrians {
     return this.walkers.filter(walker => walker.active);
   }
 
+  warmStart(playerX: number, playerZ: number, heading: number, target: number): number {
+    let live = this.walkers.filter(w => w.active).length;
+    for (let round = 0; round < 16 && live < target; round++) {
+      for (const walker of this.walkers) {
+        if (live >= target) break;
+        if (walker.active) continue;
+        if (this.place(walker, playerX, playerZ, heading)) live += 1;
+      }
+    }
+    return live;
+  }
+
   update(dt: number, elapsed: number, playerX: number, playerZ: number, heading = 0): void {
     for (const walker of this.walkers) {
       if (!walker.active) continue;

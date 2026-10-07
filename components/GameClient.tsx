@@ -41,16 +41,15 @@ export default function GameClient() {
 
         if (engine.skyDome) engine.skyDome.visible = false;
 
-        setProgress(96);
-        setTimeout(() => {
-          if (!cancelled) {
-            setProgress(100);
-            useGame.getState().set({ phase: "menu" });
-            setTimeout(() => {
-              if (!cancelled) setReady(true);
-            }, 280);
-          }
-        }, 320);
+        setProgress(88);
+        void engine.menuReady.then(() => {
+          if (cancelled) return;
+          setProgress(100);
+          useGame.getState().set({ phase: "menu" });
+          setTimeout(() => {
+            if (!cancelled) setReady(true);
+          }, 200);
+        });
       } catch (e) {
         console.error(e);
       }

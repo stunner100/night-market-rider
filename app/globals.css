@@ -949,27 +949,37 @@ body {
 .nm-footer {
   position: fixed;
   left: var(--hud-safe-left);
-  bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  bottom: max(6px, env(safe-area-inset-bottom, 0px));
   z-index: 8;
   pointer-events: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: var(--radius-sm);
-  font-size: 0.62rem;
-  line-height: 1.3;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(5, 7, 13, 0.55);
-  pointer-events: auto;
-  backdrop-filter: blur(4px);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #e8edf5;
+  background: rgba(8, 12, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
 }
 
 .nm-footer a {
-  color: rgba(255, 255, 255, 0.72);
+  color: #f7f0d8;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.nm-footer a:hover {
+  color: #fff8e7;
+}
+
+.nm-footer--in-game {
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
 }
 
 .nm-footer a:focus-visible {
@@ -988,6 +998,10 @@ body {
     max-width: 92vw;
     justify-content: center;
     text-align: center;
+  }
+
+  .nm-footer--in-game {
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
 }
 
