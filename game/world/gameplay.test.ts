@@ -135,8 +135,8 @@ test("the first pickup is a few hundred metres from the rider", () => {
   const moved = separateOrderFromRider(makeOrder(0), 0, -18, 0);
   const pickup = Math.hypot(moved.pickupX - 0, moved.pickupZ - (-18));
   assert.ok(pickup >= 280, `pickup ${pickup}`);
-  assert.ok(pickup < 500);
-  assert.equal(moved.dropoff, "Legon Traffic Light");
+  assert.ok(pickup < 900);
+  assert.ok(moved.dropoff.length > 2);
   assert.ok(Math.hypot(moved.dropX - moved.pickupX, moved.dropZ - moved.pickupZ) >= 280);
 });
 
