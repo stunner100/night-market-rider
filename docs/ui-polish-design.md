@@ -30,8 +30,14 @@
 
 ## Title backdrop
 
-- Menu orbit is anchored at **Okponglo Roundabout** (OSM location) with road-aligned camera look-ahead so the title frames shops, traffic, and street life instead of a blank facade.
-- ACES exposure matches pre-polish main values; environment map intensity on buildings is kept low to avoid washed-out walls.
+- Menu anchor prefers **Legon Traffic Light**, then Okponglo, then Night Market — snapped to the nearest road with a road-aligned cinematic orbit (wider/slower on desktop).
+- Before the menu opens, the client waits on `engine.menuReady`: OSM chunks are primed in a ring around the anchor, then `warmMenuScene()` simulates traffic and pedestrians so palms, shop fronts, vehicles, and walkers are visible at 1440×900 and 1920×1080.
+- Gameplay spawn on “Start riding” is unchanged (`0, -18` snap).
+- ACES exposure matches pre-polish main values; building env maps stay subdued.
+
+## Footer / OSM credit
+
+- Small-type footer uses ~`#e8edf5` on `rgba(8,12,22,0.88)` (WCAG AA for normal small text). In-game on touch viewports it sits above touch controls (`nm-footer--in-game`).
 
 ## Deferred
 
