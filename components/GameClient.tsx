@@ -83,7 +83,7 @@ export default function GameClient() {
           pointerEvents: "auto",
         }}
       >
-        Map data © OpenStreetMap contributors
+        © OpenStreetMap contributors
       </a>
     </div>
   );
