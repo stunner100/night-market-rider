@@ -19,6 +19,10 @@ interface Walker extends WalkerBody {
 const HAIR: HairStyle[] = ["afro", "short", "wrap", "cap", "bald"];
 const SHIRTS = [0xe67700, 0x1971c2, 0xd6336c, 0x2f9e44, 0xf2e35c, 0xe9ecef];
 
+function alongHeading(x: number, z: number, playerX: number, playerZ: number, fx: number, fz: number): number {
+  return (x - playerX) * fx + (z - playerZ) * fz;
+}
+
 function frameFromSegment(road: WorldRoad, index: number): RoadFrame | null {
   const a = road.points[index];
   const b = road.points[index + 1];
@@ -136,7 +140,17 @@ export class ActivePedestrians {
           const along = dx * fx + dz * fz;
           const lateral = Math.abs(dx * fz - dz * fx);
           if (along < 8 || along > 46 || lateral > 8) continue;
-          if (this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) continue;
+          if (!pedestrianSpawnOk({
+            x: spot.x,
+            z: spot.z,
+            playerX,
+            playerZ,
+            inBuilding: !!this.runtime.collidesBuilding(spot.x, spot.z, 0.45),
+            highway: road.highway,
+            distFromCenter: Math.hypot(spot.x - frame.x, spot.z - frame.z),
+            roadWidth: frame.width,
+            minPlayer: 10,
+          })) continue;
           spots.push({ road, index, side, x: spot.x, z: spot.z, along });
         }
       }
@@ -144,12 +158,8 @@ export class ActivePedestrians {
     spots.sort((a, b) => a.along - b.along);
     for (const spot of spots) {
       if (this.walkers.some(other => other.active && Math.hypot(other.mesh.position.x - spot.x, other.mesh.position.z - spot.z) < 5)) continue;
-      const ahead = spots
-        .filter(other => other.side === spot.side && other.along >= spot.along - 0.5 && other.along < spot.along + 22)
-        .sort((a, b) => a.along - b.along)
-        .slice(0, 5);
-      const path = ahead.map(other => ({ x: other.x, z: other.z }));
-      if (path.length < 2) path.push({ x: spot.x + fx * 4, z: spot.z + fz * 4 });
+      const path = this.sidewalkPathAhead(spot.road, spot.index, spot.side, playerX, playerZ, fx, fz);
+      if (path.length < 2) continue;
       walker.path = path;
       walker.index = 0;
       walker.wait = 0;
@@ -161,6 +171,31 @@ export class ActivePedestrians {
       return true;
     }
     return false;
+  }
+
+  private sidewalkPathAhead(
+    road: WorldRoad,
+    startIndex: number,
+    side: 1 | -1,
+    playerX: number,
+    playerZ: number,
+    fx: number,
+    fz: number,
+  ): WorldPoint[] {
+    const path: WorldPoint[] = [];
+    const end = Math.min(road.points.length - 1, startIndex + 6);
+    for (let index = startIndex; index < end; index++) {
+      const frame = frameFromSegment(road, index);
+      if (!frame) continue;
+      const point = offsetSide(frame, side, 1.5);
+      const along = (point.x - playerX) * fx + (point.z - playerZ) * fz;
+      if (path.length === 0 && along < 6) continue;
+      const prev = path[path.length - 1];
+      if (path.length > 0 && prev && along <= alongHeading(prev.x, prev.z, playerX, playerZ, fx, fz) + 0.5) continue;
+      if (this.runtime.collidesBuilding(point.x, point.z, 0.4)) continue;
+      path.push({ x: point.x, z: point.z });
+    }
+    return path;
   }
 
   private step(walker: Walker, dt: number, elapsed: number): void {
