@@ -1,8 +1,8 @@
 /**
- * Mobile + desktop HUD captures (offer + after accept).
+ * Mobile HUD layout verification captures.
  * Usage: node scripts/capture-mobile-hud.mjs <baseUrl> <outDir>
  */
-import { chromium } from "@playwright/test";
+import { chromium, devices } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -16,32 +16,26 @@ async function snap(page, name) {
 }
 
 async function waitMenu(page) {
-  await page.waitForSelector('button:has-text("Start riding")', { timeout: 180_000 });
+  await page.waitForSelector('button:has-text("Start riding"), button:has-text("START")', {
+    timeout: 180_000,
+  });
+  await page.waitForTimeout(2500);
 }
 
 async function startShift(page) {
   await page.goto(`${baseUrl}/?shift=720`, { waitUntil: "networkidle" });
   await waitMenu(page);
-  await page.locator('button:has-text("Start riding")').click();
+  await page.locator('button[aria-label="Start riding"]').click({ force: true });
   await page.waitForFunction(
     () => /Accept order/i.test(document.body.textContent ?? ""),
-    { timeout: 45_000 },
+    { timeout: 60_000 },
   );
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
 }
 
-async function mobileOffer(page, w) {
+async function setMobile(page, w) {
   await page.setViewportSize({ width: w, height: 844 });
-  await startShift(page);
-  await snap(page, `mobile-${w}-offer.png`);
-}
-
-async function mobileAccepted(page, w) {
-  await page.setViewportSize({ width: w, height: 844 });
-  await startShift(page);
-  await page.locator('button').filter({ hasText: /Accept order/i }).click();
-  await page.waitForTimeout(2500);
-  await snap(page, `mobile-${w}-accepted.png`);
+  await page.waitForTimeout(400);
 }
 
 await mkdir(outDir, { recursive: true });
@@ -55,17 +49,29 @@ const desktop = await context.newPage();
 await desktop.setViewportSize({ width: 1440, height: 900 });
 await startShift(desktop);
 await snap(desktop, "desktop-1440x900-offer.png");
-await desktop.locator('button:has-text("Accept order")').click();
-await desktop.waitForTimeout(3000);
+await desktop.locator("button").filter({ hasText: /Accept order/i }).click();
+await desktop.waitForTimeout(3500);
 await snap(desktop, "desktop-1440x900-05-in-game-hud.png");
 await desktop.close();
 
-const mobile = await context.newPage();
+const mobileContext = await browser.newContext({
+  ...devices["iPhone 13"],
+  viewport: { width: 390, height: 844 },
+});
+mobileContext.setDefaultTimeout(180_000);
+const mobile = await mobileContext.newPage();
 for (const w of [360, 390, 430]) {
-  await mobileOffer(mobile, w);
+  await setMobile(mobile, w);
+  await startShift(mobile);
+  await snap(mobile, `mobile-${w}-offer.png`);
+  await mobile.locator("button").filter({ hasText: /Accept order/i }).click();
+  await mobile.waitForTimeout(2800);
+  await snap(mobile, `mobile-${w}-accepted.png`);
+  await mobile.waitForTimeout(800);
+  await snap(mobile, `mobile-${w}-collapsed.png`);
 }
-await mobileAccepted(mobile, 390);
 await mobile.close();
+await mobileContext.close();
 
 await browser.close();
 console.log("done", outDir);

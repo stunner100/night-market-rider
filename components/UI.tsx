@@ -432,6 +432,12 @@ export default function UI({
               </button>
             </div>
             <p style={{ fontSize: "0.72rem", opacity: 0.6, marginTop: 12 }}>Esc or P to resume</p>
+            <p className="nm-pause-osm">
+              Map data{" "}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+                © OpenStreetMap contributors
+              </a>
+            </p>
           </div>
         </div>
       )}
@@ -448,23 +454,25 @@ export default function UI({
         <>
           <div className="hud-top">
             <div className="hud-top-left">
-              <span className="pill">
-                <Flame size={14} aria-hidden />
-                {s.streak} streak
-              </span>
-              {s.strikes > 0 && (
-                <span className="pill pill--urgent">
-                  <AlertTriangle size={14} aria-hidden />
-                  {s.strikes}/3
+              <div className="hud-top-left-cluster">
+                <span className="pill">
+                  <Flame size={14} aria-hidden />
+                  {s.streak} streak
                 </span>
-              )}
-              {!s.paused && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.pauseGame()} aria-label="Pause game">
-                  <Pause size={14} aria-hidden />
-                  Pause
-                </button>
-              )}
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.toggleFoot()} aria-label={s.onFoot ? "Mount bike" : "Dismount bike"}>
+                {s.strikes > 0 && (
+                  <span className="pill pill--urgent">
+                    <AlertTriangle size={14} aria-hidden />
+                    {s.strikes}/3
+                  </span>
+                )}
+                {!s.paused && (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.pauseGame()} aria-label="Pause game">
+                    <Pause size={14} aria-hidden />
+                    Pause
+                  </button>
+                )}
+              </div>
+              <button type="button" className="btn btn-ghost btn-sm hud-top-foot-btn" onClick={() => eng?.toggleFoot()} aria-label={s.onFoot ? "Mount bike" : "Dismount bike"}>
                 <UserRound size={14} aria-hidden />
                 {s.onFoot ? (s.nearBike ? "F mount" : "On foot") : "F off"}
               </button>
@@ -489,10 +497,13 @@ export default function UI({
                 <Banknote size={14} aria-hidden />
                 GHS {s.earnings.toFixed(2)}
               </span>
-              <span className="pill">
+              <span className="pill pill--rating">
                 <Star size={14} aria-hidden />
                 {s.rating.toFixed(1)}
               </span>
+            </div>
+            <div className="hud-top-phone">
+              <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
             </div>
           </div>
           {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
@@ -500,7 +511,6 @@ export default function UI({
               <span className="pill pill--hint pop">{s.turnHint}</span>
             </div>
           )}
-          <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
           {s.banner && (
             <div className="hud-banner">
               <span className="pop pill">{s.banner}</span>
@@ -543,20 +553,22 @@ export default function UI({
               {s.speedKmh} km/h · {s.deliveries} drops · {s.score.toLocaleString()} pts
             </div>
           </div>
-          <canvas ref={mapRef} id="minimap" width={150} height={150} aria-label="Minimap" />
-          <div className="nm-touch-layer">
-            <div ref={joyRef} className="touch-joy" aria-label="Steering joystick">
-              <div className="touch-joy-inner" />
-            </div>
-            <div className="touch-pad">
-              <div className="touch-btn" role="button" tabIndex={0} {...hold("down")}>
-                {s.onFoot ? "Back" : "Brake"}
+          <div className="hud-bottom-cluster">
+            <canvas ref={mapRef} id="minimap" width={150} height={150} aria-label="Minimap" />
+            <div className="nm-touch-layer">
+              <div ref={joyRef} className="touch-joy" aria-label="Steering joystick">
+                <div className="touch-joy-inner" />
               </div>
-              <div className="touch-btn" role="button" tabIndex={0} {...hold("up")}>
-                {s.onFoot ? "Walk" : "Gas"}
-              </div>
-              <div className="touch-btn touch-btn--boost" role="button" tabIndex={0} {...hold("boost")}>
-                Boost
+              <div className="touch-pad">
+                <div className="touch-btn" role="button" tabIndex={0} {...hold("down")}>
+                  {s.onFoot ? "Back" : "Brake"}
+                </div>
+                <div className="touch-btn" role="button" tabIndex={0} {...hold("up")}>
+                  {s.onFoot ? "Walk" : "Gas"}
+                </div>
+                <div className="touch-btn touch-btn--boost" role="button" tabIndex={0} {...hold("boost")}>
+                  Boost
+                </div>
               </div>
             </div>
           </div>
