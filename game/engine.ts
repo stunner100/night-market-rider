@@ -120,9 +120,13 @@ export class Engine {
   audio = new GameAudio();
   input: Input = { up: false, down: false, left: false, right: false, boost: false };
   // player
-  px = 0; pz = -18; heading = Math.PI; speed = 0;
+  /** Lively OSM junction used for title/menu orbit (Okponglo). */
+  menuAnchorX = 280;
+  menuAnchorZ = 192;
+  menuAnchorHeading = Math.PI * 0.35;
+  px = 280; pz = 192; heading = Math.PI * 0.35; speed = 0;
   onFoot = false;
-  bikeX = 0; bikeZ = -18; bikeHeading = Math.PI;
+  bikeX = 280; bikeZ = 192; bikeHeading = Math.PI * 0.35;
   walker: HumanoidRig;
   walkMoving = false;
   vy = 0; py = 0; bump = 0; shake = 0;
@@ -239,12 +243,43 @@ export class Engine {
     this.world.fuelStations.length = 0;
     this.world.colliders.length = 0;
 
-    const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
-    if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
+    this.applyMenuShowcase();
     this.osmActive = true;
     this.osmPlay = new OsmGameplay(this.scene, this.osmWorld, this.isMobile);
-    this.osmPlay.start(this.px, this.pz);
+    this.osmPlay.start(this.menuAnchorX, this.menuAnchorZ);
     useGame.getState().pushToast("🗺️ Real Accra map loaded");
+  }
+
+  /** Frame the title screen on a busy Accra junction with shops and traffic. */
+  private applyMenuShowcase() {
+    const loc = this.osmWorld.getLocation("okponglo");
+    const fallback = loc ?? { x: 280, z: 192 };
+    let x = fallback.x;
+    let z = fallback.z;
+    const frame = this.osmWorld.nearestRoadFrame(x, z, 90);
+    if (frame) {
+      x = frame.x;
+      z = frame.z;
+      this.menuAnchorHeading = Math.atan2(frame.tangentX, frame.tangentZ);
+    }
+    this.menuAnchorX = x;
+    this.menuAnchorZ = z;
+    this.px = x;
+    this.pz = z;
+    this.heading = this.menuAnchorHeading;
+    this.bikeX = x;
+    this.bikeZ = z;
+    this.bikeHeading = this.menuAnchorHeading;
+    void this.osmWorld.update(x, z, true);
+  }
+
+  private syncMenuPose(elapsedSec: number) {
+    const drift = Math.sin(elapsedSec * 0.12) * 2.8;
+    const along = Math.cos(elapsedSec * 0.09) * 1.6;
+    this.px = this.menuAnchorX + Math.sin(this.menuAnchorHeading) * drift + Math.cos(this.menuAnchorHeading) * along;
+    this.pz = this.menuAnchorZ + Math.cos(this.menuAnchorHeading) * drift - Math.sin(this.menuAnchorHeading) * along;
+    this.heading = this.menuAnchorHeading + Math.sin(elapsedSec * 0.14) * 0.06;
+    this.speed = 0;
   }
 
   private tickOsm(dt: number, elapsed: number) {
@@ -443,6 +478,7 @@ export class Engine {
       this.targetLabel = null;
     }
     this.speed = 0;
+    if (this.osmActive) this.applyMenuShowcase();
   }
 
   startRun() {
@@ -782,13 +818,7 @@ export class Engine {
     // ---- menu demo: slow orbit ----
     if (phase === "menu" || phase === "loading") {
       const t = performance.now() / 1000;
-      this.px = Math.sin(t * 0.1) * 4; this.pz = -18;
-      this.heading = Math.PI + Math.sin(t * 0.2) * 0.2;
-      this.speed = 0;
-      if (this.osmActive) {
-        const snapped = this.osmWorld.nearestRoadPoint(0, -18, 80);
-        if (snapped) { this.px = snapped.x + Math.sin(t * 0.1) * 4; this.pz = snapped.z; }
-      }
+      this.syncMenuPose(t);
       this.tickOsm(dt, t);
       this.world.update(dt, t, NIGHT_FLOOR, this.px, this.pz);
       this.syncRig(dt, t, 0);
@@ -1363,13 +1393,21 @@ export class Engine {
   updateCamera(dt: number, menu: boolean) {
     const t = performance.now() / 1000;
     if (menu) {
-      const a = t * 0.25;
-      _menuTarget.set(this.px + Math.sin(a) * 9, 3.4, this.pz + Math.cos(a) * 9);
+      const a = t * 0.22;
+      const orbit = 10.5;
+      const hd = this.heading;
+      _menuTarget.set(
+        this.px + Math.sin(a + hd) * orbit,
+        4.1,
+        this.pz + Math.cos(a + hd) * orbit,
+      );
       this.camPos.lerp(_menuTarget, Math.min(1, dt * 2));
       this.camera.position.copy(this.camPos);
-      this.camera.lookAt(this.px, 1.8, this.pz);
+      const lookX = this.px + Math.sin(hd) * 14;
+      const lookZ = this.pz + Math.cos(hd) * 14;
+      this.camera.lookAt(lookX, 2.1, lookZ);
       const prevFov = this.camera.fov;
-      this.camera.fov += (58 - this.camera.fov) * dt * 2;
+      this.camera.fov += (56 - this.camera.fov) * dt * 2;
       if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
       return;
     }

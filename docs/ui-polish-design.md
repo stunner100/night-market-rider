@@ -28,6 +28,11 @@
 
 - `pop` entrance on overlays; `floaty` on logo (disabled under `prefers-reduced-motion`).
 
+## Title backdrop
+
+- Menu orbit is anchored at **Okponglo Roundabout** (OSM location) with road-aligned camera look-ahead so the title frames shops, traffic, and street life instead of a blank facade.
+- ACES exposure matches pre-polish main values; environment map intensity on buildings is kept low to avoid washed-out walls.
+
 ## Deferred
 
 - Full-screen bloom post-processing (skipped for bundle/perf; tone mapping + lamp emissive kept).

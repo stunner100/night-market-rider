@@ -11,7 +11,7 @@ const outDir = process.argv[3] || "/opt/cursor/artifacts/before";
 
 async function snap(page, name) {
   const file = path.join(outDir, `${name}.png`);
-  await page.screenshot({ path: file, fullPage: false });
+  await page.screenshot({ path: file, fullPage: false, timeout: 90_000 });
   console.log("wrote", file);
 }
 
@@ -27,6 +27,7 @@ async function runViewport(label, viewport, isMobile) {
     deviceScaleFactor: isMobile ? 2 : 1,
     ...(isMobile ? devices["iPhone 13"] : {}),
   });
+  context.setDefaultTimeout(120_000);
   const page = await context.newPage();
 
   // Loading — catch early frame
@@ -36,8 +37,17 @@ async function runViewport(label, viewport, isMobile) {
   } catch {}
 
   await page.waitForSelector('button:has-text("Start riding"), button:has-text("START")', { timeout: 120000 });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(3500);
   await snap(page, path.join(label, "02-title-menu"));
+
+  if (isMobile) {
+    for (const w of [360, 390, 430]) {
+      await page.setViewportSize({ width: w, height: 844 });
+      await page.waitForTimeout(400);
+      await snap(page, path.join(label, `02-title-menu-${w}w`));
+    }
+    await page.setViewportSize(viewport);
+  }
 
   await page.locator('button').filter({ hasText: /Leaderboard/i }).first().click({ force: true });
   await page.waitForTimeout(400);

@@ -378,27 +378,28 @@ export default function UI({
               <Play size={18} aria-hidden />
               Start riding
             </button>
-            <div className="btn-row">
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowBoard(true)}>
-                <Trophy size={16} aria-hidden />
-                Leaderboard
+            <div className="btn-row btn-row--title">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowBoard(true)} aria-label="Leaderboard">
+                <Trophy size={18} aria-hidden />
+                <span className="btn-label">Leaderboard</span>
               </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowHelp(true)}>
-                <HelpCircle size={16} aria-hidden />
-                How to play
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowHelp(true)} aria-label="How to play">
+                <HelpCircle size={18} aria-hidden />
+                <span className="btn-label">How to play</span>
               </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
                 aria-pressed={s.sound}
+                aria-label={s.sound ? "Sound on" : "Sound off"}
                 onClick={() => {
                   const v = !s.sound;
                   s.set({ sound: v });
                   if (eng) eng.audio.setEnabled(v);
                 }}
               >
-                {s.sound ? <Volume2 size={16} aria-hidden /> : <VolumeX size={16} aria-hidden />}
-                {s.sound ? "Sound on" : "Sound off"}
+                {s.sound ? <Volume2 size={18} aria-hidden /> : <VolumeX size={18} aria-hidden />}
+                <span className="btn-label">{s.sound ? "Sound on" : "Sound off"}</span>
               </button>
             </div>
             <p className="nm-controls-hint">
