@@ -505,12 +505,12 @@ export default function UI({
             <div className="hud-top-phone">
               <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
             </div>
+            {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
+              <div className="hud-top-nav hud-turn-hint">
+                <span className="pill pill--hint pop">{s.turnHint}</span>
+              </div>
+            )}
           </div>
-          {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
-            <div className="hud-turn-hint">
-              <span className="pill pill--hint pop">{s.turnHint}</span>
-            </div>
-          )}
           {s.banner && (
             <div className="hud-banner">
               <span className="pop pill">{s.banner}</span>

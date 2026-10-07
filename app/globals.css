@@ -567,7 +567,7 @@ body {
 
 @media (pointer: coarse), (max-width: 820px) {
   :root {
-    --hud-mobile-credit-h: 26px;
+    --hud-mobile-credit-h: 22px;
     --hud-mobile-credit-gap: 8px;
     --hud-mobile-touch-h: 54px;
     --hud-mobile-map: min(76px, 21vw);
@@ -585,7 +585,8 @@ body {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     grid-template-areas:
       "left center right"
-      "phone phone phone";
+      ". . phone"
+      "nav nav nav";
     row-gap: 6px;
     column-gap: 8px;
     align-items: start;
@@ -624,10 +625,30 @@ body {
   .hud-top-phone {
     grid-area: phone;
     display: flex;
-    justify-content: flex-start;
+    justify-content: flex-end;
     width: 100%;
     pointer-events: none;
     min-height: 28px;
+  }
+
+  .hud-top-nav {
+    grid-area: nav;
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+    text-align: center;
+    pointer-events: none;
+    justify-self: stretch;
+    padding: 0 2px;
+  }
+
+  .hud-top-nav .pill {
+    display: inline-block;
+    max-width: 100%;
   }
 
   .hud-top-left .btn-sm,
@@ -642,14 +663,15 @@ body {
     white-space: nowrap;
   }
 
-  .hud-turn-hint {
-    top: calc(var(--hud-safe-top) + 118px);
-  }
-
   .hud-stats-panel {
     bottom: calc(var(--hud-mobile-sheet-bottom) + 8px);
     width: 118px;
     font-size: 0.65rem;
+  }
+
+  .hud-layer:has(.nm-phone-open) .hud-stats-panel {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .hud-bottom-cluster {
@@ -782,6 +804,16 @@ body {
   .hud-top-right,
   .hud-top-center {
     grid-area: unset;
+  }
+
+  .hud-top-nav {
+    position: absolute;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    max-width: min(90vw, 420px);
+    padding: 0;
   }
 
   .hud-top-phone {
@@ -1058,6 +1090,18 @@ body {
   padding: 4px 6px;
 }
 
+@media (min-width: 821px) {
+  .nm-phone:not(.nm-phone-open) {
+    min-width: 168px;
+  }
+
+  .nm-phone-bar,
+  .nm-phone-brand {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}
+
 .nm-phone-bar {
   width: 100%;
   display: flex;
@@ -1308,18 +1352,19 @@ body {
     transform: none;
     bottom: var(--hud-safe-bottom);
     top: auto;
-    width: var(--hud-mobile-map);
-    max-width: var(--hud-mobile-map);
+    width: max-content;
+    min-width: var(--hud-mobile-map);
+    max-width: min(132px, 38vw);
     text-align: left;
-    font-size: 0.48rem;
-    line-height: 1.15;
-    padding: 2px 4px;
-    border-radius: 4px;
+    font-size: 0.5rem;
+    line-height: 1.2;
+    padding: 3px 7px;
+    border-radius: var(--radius-pill);
     z-index: 4;
-    white-space: normal;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     justify-content: flex-start;
-    hyphens: none;
   }
 }
 
@@ -1363,22 +1408,31 @@ body {
 
   .hud-top-phone .nm-phone:not(.nm-phone-open) {
     border-radius: var(--radius-pill);
-    padding: 4px 6px;
+    padding: 4px 8px;
+    min-width: 158px;
+    max-width: none;
+  }
+
+  .hud-top-phone .nm-phone-bar,
+  .hud-top-phone .nm-phone-brand {
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .hud-top-phone .nm-phone.nm-phone-open {
     position: fixed;
-    left: var(--hud-safe-left);
-    right: var(--hud-safe-right);
+    left: 0;
+    right: 0;
     bottom: var(--hud-mobile-sheet-bottom);
     top: auto;
     width: auto;
     max-width: none;
     max-height: min(36vh, 268px);
-    margin: 0;
+    margin: 0 var(--hud-safe-right) 0 var(--hud-safe-left);
     z-index: 24;
-    padding: 8px;
+    padding: 6px 8px 8px;
     box-sizing: border-box;
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-md) var(--radius-md);
   }
 
   .hud-top-phone .nm-phone.nm-phone-open .nm-phone-screen {

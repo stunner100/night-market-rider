@@ -12,8 +12,8 @@ export default function SiteFooter() {
       aria-label="Credits"
     >
       {inGame ? (
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
-          © OpenStreetMap contributors
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" title="© OpenStreetMap contributors">
+          © OpenStreetMap
         </a>
       ) : (
         <>
