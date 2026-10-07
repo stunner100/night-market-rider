@@ -395,7 +395,7 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
                   2. Pick up, then follow the route to the customer before time runs out.<br />
                   3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
                   4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
-                  5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster.<br />
+                  5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster. Hold S / ↓ to brake; from a stop it shifts into reverse (slow creep still works on an empty tank).<br />
                   6. Night Market coins add score, XP, and a little boost.<br />
                   7. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.<br />
                   8. The phone on the right is your chop order. Tap the top bar to tuck it while you ride.
