@@ -1,18 +1,21 @@
 const MAJOR = new Set(["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary"]);
 const BIG_VEHICLE = new Set(["motorway", "trunk", "primary", "secondary", "tertiary", "trunk_link", "primary_link", "secondary_link"]);
-const TROTRO = new Set(["residential", "unclassified", "tertiary", "secondary", "primary", "trunk"]);
+const TROTRO = new Set(["service", "living_street", "residential", "unclassified", "tertiary", "secondary", "primary", "trunk"]);
+const OKADA = new Set(["service", "living_street", "residential", "unclassified", "tertiary", "secondary", "primary"]);
 const GOAT = new Set(["residential", "unclassified", "service", "living_street", "track"]);
 
 export function isMajorRoad(highway: string): boolean {
   return MAJOR.has(highway);
 }
 
-export function allowsVehicle(kind: "car" | "taxi" | "trotro" | "bus", highway: string): boolean {
+export function allowsVehicle(kind: "car" | "taxi" | "trotro" | "bus" | "okada", highway: string): boolean {
   switch (kind) {
     case "bus":
       return BIG_VEHICLE.has(highway);
     case "trotro":
       return TROTRO.has(highway);
+    case "okada":
+      return OKADA.has(highway);
     case "car":
     case "taxi":
       return highway !== "track";

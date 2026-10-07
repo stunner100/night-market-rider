@@ -19,6 +19,10 @@ interface Walker extends WalkerBody {
 const HAIR: HairStyle[] = ["afro", "short", "wrap", "cap", "bald"];
 const SHIRTS = [0xe67700, 0x1971c2, 0xd6336c, 0x2f9e44, 0xf2e35c, 0xe9ecef];
 
+function alongHeading(x: number, z: number, playerX: number, playerZ: number, fx: number, fz: number): number {
+  return (x - playerX) * fx + (z - playerZ) * fz;
+}
+
 function frameFromSegment(road: WorldRoad, index: number): RoadFrame | null {
   const a = road.points[index];
   const b = road.points[index + 1];
@@ -47,13 +51,15 @@ export class ActivePedestrians {
   private walkers: Walker[] = [];
   private spawnTimer = 0;
   private readonly target: number;
+  private readonly detail: "simple" | "full";
 
   constructor(
     private runtime: AccraWorldRuntime,
     private parent: THREE.Group,
     mobile: boolean,
   ) {
-    this.target = mobile ? 4 : 8;
+    this.target = mobile ? 8 : 16;
+    this.detail = mobile ? "simple" : "full";
   }
 
   start(): void {
@@ -67,7 +73,7 @@ export class ActivePedestrians {
         scale: 0.94 + (i % 4) * 0.02,
         bulk: 0.95,
         feminine: i % 3 === 0,
-        detail: this.target <= 4 ? "simple" : "full",
+        detail: this.detail,
       });
       rig.group.visible = false;
       this.parent.add(rig.group);
@@ -91,7 +97,7 @@ export class ActivePedestrians {
     return this.walkers.filter(walker => walker.active);
   }
 
-  update(dt: number, elapsed: number, playerX: number, playerZ: number): void {
+  update(dt: number, elapsed: number, playerX: number, playerZ: number, heading = 0): void {
     for (const walker of this.walkers) {
       if (!walker.active) continue;
       if ((walker.tumble ?? 0) > 0) {
@@ -99,7 +105,7 @@ export class ActivePedestrians {
         continue;
       }
       const away = Math.hypot(walker.mesh.position.x - playerX, walker.mesh.position.z - playerZ);
-      if (away > 78) {
+      if (away > 96) {
         this.park(walker);
         continue;
       }
@@ -107,60 +113,87 @@ export class ActivePedestrians {
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = 0.45;
+    this.spawnTimer = 0.32;
+    let born = 0;
     for (const walker of this.walkers) {
       if (walker.active) continue;
-      if (this.place(walker, playerX, playerZ)) break;
+      if (this.place(walker, playerX, playerZ, heading)) born += 1;
+      if (born >= 3) break;
     }
   }
 
-  private place(walker: Walker, playerX: number, playerZ: number): boolean {
+  private place(walker: Walker, playerX: number, playerZ: number, heading: number): boolean {
     const roads = this.runtime.visibleRoads(playerX, playerZ, 1);
     if (roads.length === 0) return false;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const road = roads[Math.floor(Math.random() * roads.length)];
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const spots: { road: WorldRoad; index: number; side: 1 | -1; x: number; z: number; along: number }[] = [];
+    for (const road of roads) {
       if (road.points.length < 2 || isMajorRoad(road.highway)) continue;
-      const index = Math.floor(Math.random() * (road.points.length - 1));
-      const frame = frameFromSegment(road, index);
-      if (!frame) continue;
-      for (const side of [1, -1] as const) {
-        const spot = offsetSide(frame, side, 1.5);
-        if (!pedestrianSpawnOk({
-          x: spot.x,
-          z: spot.z,
-          playerX,
-          playerZ,
-          inBuilding: !!this.runtime.collidesBuilding(spot.x, spot.z, 0.45),
-          highway: road.highway,
-          distFromCenter: Math.hypot(spot.x - frame.x, spot.z - frame.z),
-          roadWidth: frame.width,
-          minPlayer: 14,
-        })) continue;
-        const path = this.sidewalkPath(road, index, side);
-        if (path.length < 2) continue;
-        walker.path = path;
-        walker.index = 0;
-        walker.wait = 0;
-        walker.tumble = 0;
-        walker.active = true;
-        walker.mesh.visible = true;
-        walker.mesh.position.set(path[0].x, 0, path[0].z);
-        walker.mesh.rotation.z = 0;
-        return true;
+      for (let index = 0; index < road.points.length - 1; index++) {
+        const frame = frameFromSegment(road, index);
+        if (!frame) continue;
+        for (const side of [1, -1] as const) {
+          const spot = offsetSide(frame, side, 1.5);
+          const dx = spot.x - playerX;
+          const dz = spot.z - playerZ;
+          const along = dx * fx + dz * fz;
+          const lateral = Math.abs(dx * fz - dz * fx);
+          if (along < 8 || along > 46 || lateral > 8) continue;
+          if (!pedestrianSpawnOk({
+            x: spot.x,
+            z: spot.z,
+            playerX,
+            playerZ,
+            inBuilding: !!this.runtime.collidesBuilding(spot.x, spot.z, 0.45),
+            highway: road.highway,
+            distFromCenter: Math.hypot(spot.x - frame.x, spot.z - frame.z),
+            roadWidth: frame.width,
+            minPlayer: 10,
+          })) continue;
+          spots.push({ road, index, side, x: spot.x, z: spot.z, along });
+        }
       }
+    }
+    spots.sort((a, b) => a.along - b.along);
+    for (const spot of spots) {
+      if (this.walkers.some(other => other.active && Math.hypot(other.mesh.position.x - spot.x, other.mesh.position.z - spot.z) < 5)) continue;
+      const path = this.sidewalkPathAhead(spot.road, spot.index, spot.side, playerX, playerZ, fx, fz);
+      if (path.length < 2) continue;
+      walker.path = path;
+      walker.index = 0;
+      walker.wait = 0;
+      walker.tumble = 0;
+      walker.active = true;
+      walker.mesh.visible = true;
+      walker.mesh.position.set(path[0].x, 0, path[0].z);
+      walker.mesh.rotation.z = 0;
+      return true;
     }
     return false;
   }
 
-  private sidewalkPath(road: WorldRoad, index: number, side: 1 | -1): WorldPoint[] {
+  private sidewalkPathAhead(
+    road: WorldRoad,
+    startIndex: number,
+    side: 1 | -1,
+    playerX: number,
+    playerZ: number,
+    fx: number,
+    fz: number,
+  ): WorldPoint[] {
     const path: WorldPoint[] = [];
-    const end = Math.min(road.points.length - 1, index + 5);
-    for (let i = index; i < end; i++) {
-      const frame = frameFromSegment(road, i);
+    const end = Math.min(road.points.length - 1, startIndex + 6);
+    for (let index = startIndex; index < end; index++) {
+      const frame = frameFromSegment(road, index);
       if (!frame) continue;
-      const spot = offsetSide(frame, side, 1.5);
-      if (this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) continue;
-      path.push(spot);
+      const point = offsetSide(frame, side, 1.5);
+      const along = (point.x - playerX) * fx + (point.z - playerZ) * fz;
+      if (path.length === 0 && along < 6) continue;
+      const prev = path[path.length - 1];
+      if (path.length > 0 && prev && along <= alongHeading(prev.x, prev.z, playerX, playerZ, fx, fz) + 0.5) continue;
+      if (this.runtime.collidesBuilding(point.x, point.z, 0.4)) continue;
+      path.push({ x: point.x, z: point.z });
     }
     return path;
   }

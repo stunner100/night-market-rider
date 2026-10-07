@@ -44,9 +44,9 @@ function addFromRoad(road: WorldRoad, out: PersonPlacement[], limit: number, mob
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const len = Math.hypot(dx, dz);
-    if (len < 14) continue;
+    if (len < 10) continue;
     const seed = hash(`${road.id}:${i}:person`);
-    if (random(seed ^ 0x7341) < (mobile ? 0.68 : 0.48)) continue;
+    if (random(seed ^ 0x7341) < (mobile ? 0.5 : 0.3)) continue;
     const t = 0.18 + random(seed ^ 0xa311) * 0.64;
     const nx = -dz / len;
     const nz = dx / len;
@@ -59,6 +59,18 @@ function addFromRoad(road: WorldRoad, out: PersonPlacement[], limit: number, mob
       seed,
       scale: 0.9 + random(seed ^ 0x1d13) * 0.22,
     });
+    if (!mobile && out.length < limit && len > 22 && random(seed ^ 0x5a17) > 0.42) {
+      const other = -side;
+      const t2 = 0.22 + random(seed ^ 0x66c1) * 0.5;
+      const offset2 = road.width * 0.5 + 1.35 + random(seed ^ 0x2b91) * 0.7;
+      out.push({
+        x: a.x + dx * t2 + nx * offset2 * other,
+        z: a.z + dz * t2 + nz * offset2 * other,
+        yaw: Math.atan2(dx, dz) + (other > 0 ? 0 : Math.PI),
+        seed: seed ^ 0x51ab,
+        scale: 0.88 + random(seed ^ 0x77e2) * 0.2,
+      });
+    }
   }
 }
 
@@ -98,7 +110,7 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
   const group = new THREE.Group();
   group.name = "osm-people";
   const placements: PersonPlacement[] = [];
-  const limit = mobile ? 16 : 36;
+  const limit = mobile ? 22 : 48;
 
   // Put people around actual mapped amenities first so the world feels inhabited
   // at banks, shops, restaurants, university facilities and other POIs.

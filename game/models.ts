@@ -64,6 +64,28 @@ function sedanBase(name: string, color: number, taxi = false): THREE.Group {
 export const createTaxiMesh = () => sedanBase("GhanaTaxi", 0x1769aa, true);
 export const createCarMesh = (colorHex = 0xc92a2a) => sedanBase("Sedan", colorHex, false);
 
+export function createOkadaMesh(colorHex = 0xf4c542): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "Okada";
+  const body = paint(colorHex);
+  const dark = pbr(0x14171a, 0.8, 0.2);
+  const chrome = pbr(0xdfe3e6, 0.16, 0.9);
+  const seat = pbr(0x1a1c1e, 0.72);
+  g.add(box(0.28, 0.22, 1.15, body, 0, 0.62, 0.05, 0.06));
+  g.add(box(0.34, 0.18, 0.42, seat, 0, 0.78, -0.22, 0.05));
+  g.add(box(0.32, 0.28, 0.46, body, 0, 0.78, 0.28, 0.08));
+  g.add(box(0.62, 0.06, 0.06, chrome, 0, 0.98, 0.48, 0.02));
+  const lamp = box(0.16, 0.12, 0.08, new THREE.MeshStandardMaterial({
+    color: 0xfff2bf, emissive: 0xffd17a, emissiveIntensity: 0.85, roughness: 0.2,
+  }), 0, 0.72, 0.72, 0.02);
+  lamp.name = "lamp";
+  g.add(lamp);
+  brake(g, -0.62, 0.58, 0.28);
+  wheel(g, 0, 0.52, 0.32, dark, chrome);
+  wheel(g, 0, -0.48, 0.32, dark, chrome);
+  return g;
+}
+
 export function createBusMesh(): THREE.Group {
   const g = new THREE.Group(); g.name = "Bus"; const body = paint(0xd9480f); const cream = pbr(0xf1f3f5, .55); const dark = pbr(0x17191b, .8, .16); const chrome = pbr(0xdde2e6, .15, .9); const win = glass();
   g.add(box(2.42, 2.28, 7.65, body, 0, 1.62, 0, .24), box(2.44, .30, 7.58, cream, 0, 1.02, 0, .06)); const f = box(2.18, 1.04, .05, win, 0, 2.03, 3.82, .02); f.rotation.x = -.04; g.add(f);

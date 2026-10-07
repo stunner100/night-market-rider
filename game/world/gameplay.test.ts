@@ -97,8 +97,12 @@ test("spawn checks keep vehicles and people out of bad places", () => {
   assert.equal(vehicleSpawnOk({ x: 30, z: 0, playerX: 0, playerZ: 0, inBuilding: true }), false);
   assert.equal(vehicleSpawnOk({ x: 30, z: 0, playerX: 0, playerZ: 0, inBuilding: false }), true);
   assert.equal(allowsVehicle("bus", "residential"), false);
+  assert.equal(allowsVehicle("bus", "service"), false);
   assert.equal(allowsVehicle("bus", "tertiary"), true);
   assert.equal(allowsVehicle("trotro", "residential"), true);
+  assert.equal(allowsVehicle("trotro", "service"), true);
+  assert.equal(allowsVehicle("okada", "service"), true);
+  assert.equal(allowsVehicle("okada", "motorway"), false);
   assert.equal(goatRoadOk("trunk"), false);
   assert.equal(goatRoadOk("residential"), true);
   assert.equal(pedestrianSpawnOk({
