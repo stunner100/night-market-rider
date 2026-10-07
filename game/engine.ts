@@ -2,6 +2,16 @@ import * as THREE from "three";
 import { buildWorld, World } from "./world";
 import { buildRider, RiderRig } from "./bike";
 import { makeOrder, saveBoard, separateOrderFromRider, useGame } from "./store";
+import {
+  activateEvents,
+  eventModifiers,
+  planNightEvents,
+  primaryHudEvent,
+  readForcedEventKinds,
+  type ActiveNightEvent,
+  type NightEventSpec,
+} from "./night-events";
+import { buildRunSummary, readShiftSeconds, tipFromTimeLeft } from "./run-stats";
 import { GameAudio } from "./audio";
 import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
@@ -148,6 +158,12 @@ export class Engine {
   private _osmRouteFromZ = 0;
   private _bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private _fuelWarned = false;
+  private _runElapsed = 0;
+  private _runSeed = 0;
+  private _plannedEvents: NightEventSpec[] = [];
+  private _activeEvents: ActiveNightEvent[] = [];
+  private _eventFogBoost = 0;
+  private _rainTimer = 0;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
@@ -431,11 +447,21 @@ export class Engine {
 
   startRun() {
     const s = useGame.getState();
+    this._runElapsed = 0;
+    this._runSeed = Math.floor(Math.random() * 1000);
+    this._plannedEvents = planNightEvents(this._runSeed, readForcedEventKinds());
+    this._activeEvents = [];
+    this._eventFogBoost = 0;
     s.set({
       phase: "countdown", countdown: 3, order: null, orderIndex: 0,
       earnings: 0, xp: 0, deliveries: 0, streak: 0, bestStreak: 0,
       rating: 5.0, ratingsCount: 0, score: 0, strikes: 0, timeLeft: 0,
       lastDelivery: null, banner: null, fuel: 100, paused: false, onFoot: false, nearBike: false,
+      activeEvent: null, eventHud: null, runSummary: null,
+      runStats: {
+        tipsGhs: 0, distanceMetres: 0, crashCount: 0,
+        deliveriesOnTime: 0, deliveryAttempts: 0, shiftTimeLeft: readShiftSeconds(),
+      },
     });
     this.onFoot = false;
     this.walkMoving = false;
@@ -455,9 +481,10 @@ export class Engine {
 
   offerNext() {
     const s = useGame.getState();
+    const payoutMult = eventModifiers(this._activeEvents, this.px, this.pz).payoutMult;
     const order = this.osmActive
-      ? separateOrderFromRider(makeOrder(s.orderIndex), this.px, this.pz, s.orderIndex)
-      : makeOrder(s.orderIndex);
+      ? separateOrderFromRider(makeOrder(s.orderIndex, payoutMult), this.px, this.pz, s.orderIndex)
+      : makeOrder(s.orderIndex, payoutMult);
     if (this.osmActive) {
       const pickup = this.osmWorld.nearestRoadPoint(order.pickupX, order.pickupZ, 180);
       const drop = this.osmWorld.nearestRoadPoint(order.dropX, order.dropZ, 180);
@@ -483,7 +510,10 @@ export class Engine {
   acceptOrder() {
     const s = useGame.getState();
     if (s.phase !== "offer" || !s.order) return;
-    s.set({ phase: "toPickup" });
+    s.set({
+      phase: "toPickup",
+      runStats: { ...s.runStats, deliveryAttempts: s.runStats.deliveryAttempts + 1 },
+    });
     this.world.setMarkers({ x: s.order.pickupX, z: s.order.pickupZ }, null, "toPickup");
     s.pushToast(`Order accepted — head to ${s.order.vendor}!`);
   }
@@ -642,7 +672,10 @@ export class Engine {
     const strikes = s.strikes + 1;
     const streak = 0;
     const rating = Math.max(2.5, s.rating - 0.3);
-    s.set({ strikes, streak, rating });
+    s.set({
+      strikes, streak, rating,
+      runStats: { ...s.runStats, crashCount: s.runStats.crashCount + 1 },
+    });
     s.pushToast(why);
     if (strikes >= 3) this.gameOver();
     else s.set({ banner: `CRASH! ${3 - strikes} ${3 - strikes === 1 ? "chance" : "chances"} left` });
@@ -663,6 +696,8 @@ export class Engine {
     const s = useGame.getState();
     const o = s.order!;
     const timeBonus = Math.max(0, Math.round(s.timeLeft * 5));
+    const tip = tipFromTimeLeft(s.timeLeft, o.timeTotal);
+    const onTime = s.timeLeft > 0;
     const noCrash = this.orderCollisions === 0;
     const newStreak = s.streak + 1;
     const mult = newStreak >= 10 ? 2 : newStreak >= 5 ? 1.5 : newStreak >= 3 ? 1.25 : 1;
@@ -671,17 +706,23 @@ export class Engine {
     const ratingNew = Math.min(5, Math.max(3.2, 5 - this.orderCollisions * 0.4 - (s.timeLeft < 10 ? 0.3 : 0)));
     const ratingsCount = s.ratingsCount + 1;
     const rating = Math.round(((s.rating * s.ratingsCount + ratingNew) / ratingsCount) * 10) / 10;
-    const score = s.score + xpGain + Math.round(reward * 100);
+    const score = s.score + xpGain + Math.round(reward * 100) + Math.round(tip * 100);
     const deliveries = s.deliveries + 1;
     this.audio.deliver();
     s.set({
-      phase: "delivered", earnings: Math.round((s.earnings + reward) * 100) / 100,
+      phase: "delivered", earnings: Math.round((s.earnings + reward + tip) * 100) / 100,
       xp: s.xp + xpGain, deliveries, streak: newStreak,
       bestStreak: Math.max(s.bestStreak, newStreak),
       rating, ratingsCount, score,
-      lastDelivery: { reward, xp: xpGain, rating: ratingNew, streak: newStreak },
+      lastDelivery: { reward, xp: xpGain, rating: ratingNew, streak: newStreak, tip },
+      runStats: {
+        ...s.runStats,
+        tipsGhs: Math.round((s.runStats.tipsGhs + tip) * 100) / 100,
+        deliveriesOnTime: s.runStats.deliveriesOnTime + (onTime ? 1 : 0),
+      },
       banner: null,
     });
+    if (tip > 0) s.pushToast(`💸 Customer tip +GHS ${tip.toFixed(2)}`);
     if (noCrash) s.pushToast("✨ PERFECT DELIVERY · NO COLLISION BONUS");
     if (s.timeLeft > o.timeTotal * 0.4) s.pushToast("⚡ EXPRESS DELIVERY +500");
     this.deliveredT = 2.6;
@@ -691,9 +732,24 @@ export class Engine {
     this.nightF = Math.min(1, NIGHT_FLOOR + (1 - NIGHT_FLOOR) * (deliveries / 10));
   }
 
-  gameOver() {
+  gameOver(reason: "strikes" | "shift_over" = "strikes") {
     const s = useGame.getState();
-    s.set({ phase: "gameover" });
+    if (s.phase === "gameover") return;
+    const label = reason === "shift_over" ? "Night shift complete" : "Too many strikes";
+    const summary = buildRunSummary({
+      deliveries: s.deliveries,
+      deliveriesOnTime: s.runStats.deliveriesOnTime,
+      deliveryAttempts: s.runStats.deliveryAttempts,
+      tipsGhs: s.runStats.tipsGhs,
+      distanceMetres: s.runStats.distanceMetres,
+      crashCount: s.runStats.crashCount,
+      earnings: s.earnings,
+      rating: s.rating,
+      bestStreak: s.bestStreak,
+      score: s.score,
+    }, { kind: reason, label });
+    s.set({ phase: "gameover", runSummary: summary, activeEvent: null, eventHud: null, banner: null });
+    this._activeEvents = [];
     this.audio.fail();
     this.world.setMarkers(null, null, "gameover");
     saveBoard(s.nickname || "Rider", s.score);
@@ -754,10 +810,43 @@ export class Engine {
 
     const riding = ["offer", "toPickup", "pickup", "toDropoff", "deliver"].includes(phase);
     const canDrive = ["offer", "toPickup", "toDropoff"].includes(phase) && !this.onFoot;
+    const inShift = riding || phase === "delivered" || phase === "countdown";
+
+    if (inShift && phase !== "countdown") {
+      this._runElapsed += dt;
+      const shiftLeft = Math.max(0, s.runStats.shiftTimeLeft - dt);
+      if (shiftLeft !== s.runStats.shiftTimeLeft) {
+        s.set({ runStats: { ...s.runStats, shiftTimeLeft: shiftLeft } });
+      }
+      if (shiftLeft <= 0 && phase !== "gameover") {
+        s.pushToast("⏰ Shift over — clock out!");
+        this.gameOver("shift_over");
+        return;
+      }
+      const prevKinds = this._activeEvents.map(event => event.kind);
+      this._activeEvents = activateEvents(this._plannedEvents, this._runElapsed, this._activeEvents);
+      for (const event of this._activeEvents) {
+        if (!prevKinds.includes(event.kind)) {
+          s.pushToast(`${event.emoji} ${event.label.toUpperCase()} · ${event.hud}`);
+        }
+      }
+      const hudEvent = primaryHudEvent(this._activeEvents);
+      if (hudEvent?.kind !== s.activeEvent?.kind || hudEvent?.hud !== s.eventHud) {
+        s.set({ activeEvent: hudEvent, eventHud: hudEvent?.hud ?? null });
+      }
+      if (!this.onFoot && Math.abs(this.speed) > 0.2) {
+        const metres = Math.abs(this.speed) * dt * (this.osmActive ? 1 : 8);
+        s.set({ runStats: { ...s.runStats, distanceMetres: s.runStats.distanceMetres + metres } });
+      }
+    }
+
+    const eventMods = eventModifiers(this._activeEvents, this.px, this.pz);
+    this._eventFogBoost = eventMods.fogMult - 1;
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
-    const maxSp = 26 + orderDiff * 2;
+    let maxSp = 26 + orderDiff * 2;
+    if (eventMods.maxSpeedCap !== null) maxSp = Math.min(maxSp, eventMods.maxSpeedCap);
     const boostMax = 37;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
@@ -792,7 +881,7 @@ export class Engine {
     const steerAuthority = THREE.MathUtils.clamp(Math.abs(this.speed) / 10, 0, 1) * (this.speed >= 0 ? 1 : -1);
     if (canDrive && this.speed !== 0) {
       const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
-      this.heading += steer * 2.1 * steerAuthority * dt * (this.boostOn ? 0.8 : 1);
+      this.heading += steer * 2.1 * steerAuthority * dt * (this.boostOn ? 0.8 : 1) * eventMods.steerMult;
     }
     if (this.onFoot) {
       this.stepOnFoot(dt);
@@ -1044,6 +1133,20 @@ export class Engine {
     }
 
     // particles: dust + exhaust
+    this._rainTimer -= dt;
+    if (eventMods.fogMult > 1.05 && this._rainTimer <= 0 && !this.isMobile) {
+      this._rainTimer = 0.14;
+      this.spawnPuff(this.px + rand(-3, 3), 6 + rand(0, 4), this.pz + rand(-3, 3), 0x9fb4c8, 1, 0.4);
+    } else if (eventMods.fogMult > 1.05 && this._rainTimer <= 0) {
+      this._rainTimer = 0.22;
+    }
+
+    if (eventMods.checkpoint && Math.hypot(this.px - eventMods.checkpoint.x, this.pz - eventMods.checkpoint.z) < eventMods.checkpoint.radius + 20) {
+      if (s.banner !== "POLICE CHECKPOINT 🚓") s.set({ banner: "POLICE CHECKPOINT 🚓" });
+    } else if (s.banner === "POLICE CHECKPOINT 🚓") {
+      s.set({ banner: null });
+    }
+
     this.dustTimer -= dt;
     if (!this.onFoot && (Math.abs(this.speed) > 14 || !this.onRoad(this.px, this.pz)) && this.dustTimer <= 0 && this.py === 0) {
       this.dustTimer = 0.06;
@@ -1227,7 +1330,13 @@ export class Engine {
     else _skyResult.lerpColors(_skySunset, _skyNight, (n - 0.5) * 2);
     _fogResult.copy(_skyResult).lerp(_fogNight, n);
     this.scene.background = _skyResult;
-    if (this.scene.fog) this.scene.fog.color.copy(_fogResult);
+    if (this.scene.fog) {
+      this.scene.fog.color.copy(_fogResult);
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        const base = this.isMobile ? 0.0092 : 0.0084;
+        this.scene.fog.density = base + n * 0.0015 + this._eventFogBoost * 0.004;
+      }
+    }
 
     if (this.skyDome) {
       this.skyDome.position.set(this.px, 0, this.pz);

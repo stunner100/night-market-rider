@@ -92,6 +92,9 @@ export default function DeliveryPhone({ onAccept }: { onAccept: () => void }) {
       </button>
       <div className="nm-phone-screen">
         <div className="nm-phone-kicker">{kicker(phase)} · {order.emoji}</div>
+        {s.eventHud && (
+          <div className="nm-phone-event">{s.activeEvent?.emoji} {s.eventHud}</div>
+        )}
         <div className="nm-phone-place">{place}</div>
         <div className="nm-phone-sub">{who}</div>
         {phase !== "delivered" && (
@@ -110,7 +113,8 @@ export default function DeliveryPhone({ onAccept }: { onAccept: () => void }) {
             <div className="nm-phone-pay">GHS {order.reward.toFixed(2)} · momo on delivery</div>
             {phase === "delivered" && s.lastDelivery && (
               <div className="nm-phone-done">
-                + GHS {s.lastDelivery.reward.toFixed(2)}<br />
+                + GHS {s.lastDelivery.reward.toFixed(2)}
+                {s.lastDelivery.tip > 0 && <> · tip {s.lastDelivery.tip.toFixed(2)}</>}<br />
                 + {s.lastDelivery.xp} XP · ⭐ {s.lastDelivery.rating.toFixed(1)}
               </div>
             )}

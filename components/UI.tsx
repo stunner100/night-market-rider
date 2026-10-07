@@ -301,10 +301,13 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
               {s.onFoot ? (s.nearBike ? "F MOUNT" : "ON FOOT") : "F GET OFF"}
             </button>
           </div>
-          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)" }}>
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
             <span className="pill" style={{ fontSize: 16, borderColor: s.timeLeft < 15 && (s.phase === "toDropoff" || s.phase === "toPickup") ? "#ff6b6b" : "rgba(255,255,255,0.16)" }}>
               ⏱ {(s.phase === "toDropoff" || s.phase === "toPickup") ? fmtTime(s.timeLeft) : s.order ? fmtTime(s.order.timeTotal) : "--:--"}
             </span>
+            {s.runStats.shiftTimeLeft > 0 && (
+              <span className="pill" style={{ fontSize: 11, opacity: 0.85 }}>Shift {fmtTime(s.runStats.shiftTimeLeft)}</span>
+            )}
           </div>
           <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 8 }}>
             <span className="pill">GHS {s.earnings.toFixed(2)}</span>
@@ -346,17 +349,29 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
         </>
       )}
 
-      {s.phase === "gameover" && (
+      {s.phase === "gameover" && (() => {
+        const summary = s.runSummary;
+        const onTimePct = summary ? Math.round(summary.onTimeRate * 100) : Math.round((s.runStats.deliveriesOnTime / Math.max(1, s.runStats.deliveryAttempts)) * 100);
+        const distKm = summary ? summary.distanceMetres / 1000 : s.runStats.distanceMetres / 1000;
+        const stars = summary?.stars ?? 3;
+        const starText = summary?.starLabel ?? "Solid shift";
+        return (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(440px, 92vw)", pointerEvents: "auto" }}>
+          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(480px, 92vw)", pointerEvents: "auto" }}>
             <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 90, background: "#000", borderRadius: 12, padding: 6 }} />
-            <h2 style={{ margin: "8px 0" }}>SHIFT COMPLETE</h2>
-            <div style={{ lineHeight: 1.8, fontWeight: 700 }}>
-              Deliveries: {s.deliveries}<br />
-              Earnings: GHS {s.earnings.toFixed(2)}<br />
-              Average Rating: ⭐ {s.rating.toFixed(1)}<br />
-              Score: {s.score.toLocaleString()}<br />
-              Best Streak: 🔥 {s.bestStreak}
+            <h2 style={{ margin: "8px 0 2px" }}>SHIFT RESULTS</h2>
+            <p style={{ margin: "0 0 10px", opacity: 0.75, fontSize: 13 }}>{summary?.reason.label ?? "Shift ended"}</p>
+            <div style={{ fontSize: 28, letterSpacing: 2, marginBottom: 8 }}>{"★".repeat(Math.floor(stars))}{stars % 1 ? "½" : ""}{"☆".repeat(5 - Math.ceil(stars))}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85, marginBottom: 10 }}>{starText} · ⭐ {s.rating.toFixed(1)} rider rating</div>
+            <div style={{ lineHeight: 1.75, fontWeight: 700, textAlign: "left", fontSize: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Deliveries</span><span>{s.deliveries}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Earnings</span><span>GHS {s.earnings.toFixed(2)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Tips</span><span>GHS {(summary?.tipsGhs ?? s.runStats.tipsGhs).toFixed(2)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>On-time rate</span><span>{onTimePct}%</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Distance ridden</span><span>{distKm.toFixed(1)} km</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Crashes</span><span>{summary?.crashCount ?? s.runStats.crashCount}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Best streak</span><span>🔥 {s.bestStreak}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.12)" }}><span>Score</span><span>{s.score.toLocaleString()}</span></div>
             </div>
             <input
               value={s.nickname}
@@ -365,17 +380,18 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
               style={{ marginTop: 12, width: "100%", padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 800, textAlign: "center" }}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { saveBoard(s.nickname || "Rider", s.score); eng?.startRun(); }}>RIDE AGAIN</button>
-              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => {
-                const txt = `I earned GHS ${s.earnings.toFixed(2)} in Night Market Rider! Score ${s.score.toLocaleString()} 🛵`;
-                if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
-                else { try { navigator.clipboard.writeText(txt); } catch {} s.pushToast("Score copied — share am! 📣"); }
-              }}>SHARE SCORE</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { saveBoard(s.nickname || "Rider", s.score); eng?.startRun(); }}>PLAY AGAIN</button>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowBoard(true)}>LEADERBOARD</button>
             </div>
-            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => setShowBoard(true)}>LEADERBOARD</button>
+            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => {
+              const txt = `Night Market Rider: GHS ${s.earnings.toFixed(2)} · ${s.deliveries} deliveries · ${s.score.toLocaleString()} pts 🛵`;
+              if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
+              else { try { navigator.clipboard.writeText(txt); } catch {} s.pushToast("Score copied — share am! 📣"); }
+            }}>SHARE SCORE</button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {(showBoard || showHelp) && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>
@@ -394,11 +410,12 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
                   1. Accept an order and follow the road to the vendor.<br />
                   2. Pick up, then follow the route to the customer before time runs out.<br />
                   3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
-                  4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
-                  5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster. Hold S / ↓ to brake; from a stop it shifts into reverse (slow creep still works on an empty tank).<br />
-                  6. Night Market coins add score, XP, and a little boost.<br />
-                  7. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.<br />
-                  8. The phone on the right is your chop order. Tap the top bar to tuck it while you ride.
+                  4. Three strikes — crashes or late orders — end the shift early. Your shift also clocks out after 12 minutes. Delivery streaks raise your pay.<br />
+                  5. Watch the phone for night events: chop rush surge pay, police checkpoints, and rain that cuts grip.<br />
+                  6. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster. Hold S / ↓ to brake; from a stop it shifts into reverse (slow creep still works on an empty tank).<br />
+                  7. Night Market coins add score, XP, and a little boost.<br />
+                  8. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.<br />
+                  9. The phone on the right is your chop order. Tap the top bar to tuck it while you ride. Fast deliveries can earn tips.
                 </div>
               </>
             )}

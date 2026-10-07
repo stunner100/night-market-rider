@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import { latLonToWorld } from "./world/coordinates";
+import {
+  buildOrder,
+  separateOrderFromRider as separateOrderFromRiderImpl,
+  MIN_PICKUP_METRES,
+  type OrderDraft,
+} from "./orders";
+import type { ActiveNightEvent } from "./night-events";
+import type { RunSummary } from "./run-stats";
 
 export type Phase =
   | "loading"
@@ -13,23 +20,18 @@ export type Phase =
   | "delivered"
   | "gameover";
 
-export interface Order {
-  id: number;
-  vendor: string;
-  food: string;
-  emoji: string;
-  customer: string;
-  dropoff: string;
-  reward: number;
-  xp: number;
-  timeTotal: number;
-  pickupX: number;
-  pickupZ: number;
-  dropX: number;
-  dropZ: number;
-}
+export type Order = OrderDraft;
 
 interface Toast { id: number; text: string; }
+
+export interface RunLiveStats {
+  tipsGhs: number;
+  distanceMetres: number;
+  crashCount: number;
+  deliveriesOnTime: number;
+  deliveryAttempts: number;
+  shiftTimeLeft: number;
+}
 
 interface GameState {
   phase: Phase;
@@ -58,14 +60,27 @@ interface GameState {
   toasts: Toast[];
   sound: boolean;
   nickname: string;
-  lastDelivery: { reward: number; xp: number; rating: number; streak: number } | null;
+  lastDelivery: { reward: number; xp: number; rating: number; streak: number; tip: number } | null;
   leaderboard: { name: string; score: number }[];
+  activeEvent: ActiveNightEvent | null;
+  eventHud: string | null;
+  runStats: RunLiveStats;
+  runSummary: RunSummary | null;
   set: (p: Partial<GameState>) => void;
   pushToast: (text: string) => void;
   clearBanner: () => void;
 }
 
 let toastId = 1;
+
+const defaultRunStats = (): RunLiveStats => ({
+  tipsGhs: 0,
+  distanceMetres: 0,
+  crashCount: 0,
+  deliveriesOnTime: 0,
+  deliveryAttempts: 0,
+  shiftTimeLeft: 0,
+});
 
 if (typeof window !== "undefined") {
   try {
@@ -106,6 +121,10 @@ export const useGame = create<GameState>((set, get) => ({
   nickname: "Rider",
   lastDelivery: null,
   leaderboard: [],
+  activeEvent: null,
+  eventHud: null,
+  runStats: defaultRunStats(),
+  runSummary: null,
   set: (p) => set(p),
   pushToast: (text) => {
     const id = toastId++;
@@ -128,86 +147,14 @@ export function saveBoard(name: string, score: number) {
   } catch { /* ignore */ }
 }
 
-const VENDORS = [
-  { vendor: "Papaye", food: "Fried Chicken & Chips", emoji: "🍗" },
-  { vendor: "Waakye Special", food: "Waakye", emoji: "🍛" },
-  { vendor: "Jollof Available", food: "Party Jollof", emoji: "🍚" },
-  { vendor: "Chicken Republic", food: "Chicken Wings", emoji: "🍗" },
-  { vendor: "Osikan Chop Bar", food: "Fufu & Light Soup", emoji: "🍲" },
-  { vendor: "Burger Spot", food: "Beef Burger", emoji: "🍔" },
-  { vendor: "Pizza Inn Legon", food: "Pepperoni Pizza", emoji: "🍕" },
-  { vendor: "Cold Store", food: "Chilled Drinks", emoji: "🥤" },
-];
-const CUSTOMERS = ["Nana", "Ama", "Kwame", "Yaw", "Kojo", "Efya", "Kofi", "Abena"];
+export { MIN_PICKUP_METRES };
 
-const ACCRA_ORIGIN = { lat: 5.6425, lon: -0.18628 };
-const GEO_PADS = [
-  { name: "Night Market", lat: 5.6425, lon: -0.18628 },
-  { name: "Okponglo", lat: 5.64077, lon: -0.18375 },
-  { name: "Legon Traffic Light", lat: 5.64055, lon: -0.17925 },
-  { name: "Legon Post Office", lat: 5.65090, lon: -0.18763 },
-  { name: "UPSA", lat: 5.66155, lon: -0.16638 },
-].map(p => ({ ...p, ...latLonToWorld(p.lat, p.lon, ACCRA_ORIGIN) }));
-
-export const MIN_PICKUP_METRES = 280;
-
-function priceOrder(index: number, pickup: { x: number; z: number }, drop: { x: number; z: number }) {
-  const directMetres = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
-  const distKm = Math.max(0.35, directMetres / 1000);
-  const generous = index < 3 ? 1.45 : index < 7 ? 1.2 : 1.0;
-  return {
-    reward: Math.round((5.5 + distKm * 2.4) * 100) / 100,
-    xp: Math.round(500 + distKm * 250),
-    timeTotal: Math.round((75 + distKm * 70) * generous),
-  };
+export function makeOrder(index: number, payoutMult = 1): Order {
+  return buildOrder(index, payoutMult);
 }
 
-/** Move a pickup that sits on the rider out to the nearest real pad a few hundred metres away. */
 export function separateOrderFromRider(order: Order, riderX: number, riderZ: number, index: number): Order {
-  if (Math.hypot(order.pickupX - riderX, order.pickupZ - riderZ) >= MIN_PICKUP_METRES) return order;
-  const pickup = GEO_PADS
-    .map(pad => ({ pad, distance: Math.hypot(pad.x - riderX, pad.z - riderZ) }))
-    .filter(item => item.distance >= MIN_PICKUP_METRES)
-    .sort((a, b) => a.distance - b.distance)[0]?.pad;
-  if (!pickup) return order;
-  const sameDrop = GEO_PADS.find(pad => pad.name === order.dropoff);
-  const dropStillWorks = sameDrop
-    && sameDrop.name !== pickup.name
-    && Math.hypot(sameDrop.x - pickup.x, sameDrop.z - pickup.z) >= MIN_PICKUP_METRES;
-  const drop = dropStillWorks ? sameDrop : GEO_PADS
-    .filter(pad => pad.name !== pickup.name && Math.hypot(pad.x - pickup.x, pad.z - pickup.z) >= MIN_PICKUP_METRES)
-    .sort((a, b) => Math.hypot(a.x - pickup.x, a.z - pickup.z) - Math.hypot(b.x - pickup.x, b.z - pickup.z))[0];
-  if (!drop) return order;
-  return {
-    ...order,
-    dropoff: drop.name,
-    ...priceOrder(index, pickup, drop),
-    pickupX: pickup.x,
-    pickupZ: pickup.z,
-    dropX: drop.x,
-    dropZ: drop.z,
-  };
-}
-
-export function makeOrder(index: number): Order {
-  const v = VENDORS[index % VENDORS.length];
-  const padA = GEO_PADS[index % GEO_PADS.length];
-  let padB = GEO_PADS[(index + 2) % GEO_PADS.length];
-  if (padA === padB) padB = GEO_PADS[(index + 3) % GEO_PADS.length];
-
-  return {
-    id: index + 1,
-    vendor: v.vendor,
-    food: v.food,
-    emoji: v.emoji,
-    customer: CUSTOMERS[index % CUSTOMERS.length],
-    dropoff: padB.name,
-    ...priceOrder(index, padA, padB),
-    pickupX: padA.x,
-    pickupZ: padA.z,
-    dropX: padB.x,
-    dropZ: padB.z,
-  };
+  return separateOrderFromRiderImpl(order, riderX, riderZ, index);
 }
 
 if (typeof window !== "undefined") {

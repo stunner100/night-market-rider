@@ -16,7 +16,16 @@ A browser-based night delivery game set on real Accra streets. Ride a motorbike 
 | **Phone HUD** (right side) | Accept orders, see pickup and drop-off; tap the top bar to tuck the phone while riding |
 | **Touch** | On-screen joystick, gas, brake, and boost |
 
-Pause from the menu bar. Three strikes (crashes or late deliveries) end your shift.
+Pause from the menu bar. Three strikes (crashes or late deliveries) end your shift early, or ride until the 12-minute night shift timer runs out.
+
+## Features
+
+- Real Accra OSM roads (Legon, Okponglo, UPSA) with traffic, walkers, fuel stops, and hazards
+- Chop orders from many Accra-style vendors (waakye, kelewele, jollof, banku, indomie, and more) with drop-offs spread along the map
+- Dynamic night events: order surge pay, police checkpoints, rain showers (shown on the delivery phone)
+- End-of-shift results: earnings, tips, on-time rate, distance, crashes, streak, star rating, leaderboard
+- Debug events in the browser: add `?events=order_surge,police_checkpoint,rain_shower` or set `localStorage.nm_debug_events` to the same list
+- Demo a shorter shift with `?shift=90` (seconds, 30–720)
 
 ## Run locally
 
