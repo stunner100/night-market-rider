@@ -36,7 +36,7 @@ export function applyVisualQuality(engine: Engine) {
       if (!(material instanceof THREE.MeshStandardMaterial) && !(material instanceof THREE.MeshPhysicalMaterial)) continue;
 
       const heroMaterial = object.name === "wheel" || object.name === "wheel-rim";
-      material.envMapIntensity = heroMaterial ? 0.22 : 0.34;
+      material.envMapIntensity = heroMaterial ? 0.2 : 0.14;
 
       const maps = [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.aoMap];
       for (const texture of maps) {

@@ -10,6 +10,7 @@
     "test": "tsx --test game/drive.test.ts game/world/gameplay.test.ts game/world/street-fronts.test.ts game/world/on-foot.test.ts game/orders.test.ts game/night-events.test.ts game/run-stats.test.ts"
   },
   "dependencies": {
+    "lucide-react": "^0.544.0",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOrder, separateOrderFromRider, MIN_PICKUP_METRES, VENDORS } from "./orders";
+import { buildOrder, joinVendorStop, separateOrderFromRider, MIN_PICKUP_METRES, VENDORS } from "./orders";
 
 test("orders use expanded Accra vendor templates", () => {
   assert.ok(VENDORS.length >= 12);
@@ -16,6 +16,11 @@ test("pickup separation keeps vendor and drop far from rider", () => {
   assert.ok(pickup >= MIN_PICKUP_METRES, `pickup ${pickup}`);
   assert.ok(Math.hypot(moved.dropX - moved.pickupX, moved.dropZ - moved.pickupZ) >= MIN_PICKUP_METRES);
   assert.notEqual(moved.dropoff, moved.vendor.split(" · ").pop());
+});
+
+test("joinVendorStop skips duplicate area names", () => {
+  assert.equal(joinVendorStop("Waakye Special · Okponglo", "Okponglo Roundabout"), "Waakye Special · Okponglo");
+  assert.equal(joinVendorStop("Party Jollof Joint", "Legon Traffic Light"), "Party Jollof Joint · Legon Traffic Light");
 });
 
 test("orders vary pickup pads across indices", () => {

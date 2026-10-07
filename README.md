@@ -4,6 +4,10 @@ A browser-based night delivery game set on real Accra streets. Ride a motorbike 
 
 **Play:** [night-market-rider.vercel.app](https://night-market-rider.vercel.app)
 
+## Screenshots
+
+Before/after UI polish comparisons live in [`docs/screenshots/`](docs/screenshots/) (`before/` = production prior to polish PR, `after/` = polished build). Capture locally with `node scripts/capture-screens.mjs http://localhost:3000 ./out`.
+
 ## Controls
 
 | Input | Action |

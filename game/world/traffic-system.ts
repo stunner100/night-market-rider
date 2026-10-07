@@ -130,6 +130,19 @@ export class TrafficSystem {
     return this.vehicles.filter(vehicle => vehicle.active);
   }
 
+  /** Pre-fill vehicles around the title/menu anchor (desktop gets a fuller street). */
+  warmStart(playerX: number, playerZ: number, heading: number, target: number): number {
+    let live = this.vehicles.filter(v => v.active).length;
+    for (let round = 0; round < 14 && live < target; round++) {
+      for (const vehicle of this.vehicles) {
+        if (live >= target) break;
+        if (vehicle.active) continue;
+        if (this.place(vehicle, playerX, playerZ, heading)) live += 1;
+      }
+    }
+    return live;
+  }
+
   update(dt: number, playerX: number, playerZ: number, heading = 0): void {
     if (!this.graph) return;
     for (const vehicle of this.vehicles) {

@@ -1,5 +1,25 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Banknote,
+  Clock,
+  Flame,
+  Fuel,
+  Gauge,
+  HelpCircle,
+  LogOut,
+  Pause,
+  Play,
+  RotateCcw,
+  Share2,
+  Star,
+  Trophy,
+  UserRound,
+  Volume2,
+  VolumeX,
+  Zap,
+} from "lucide-react";
 import { useGame, saveBoard } from "@/game/store";
 import type { MinimapFrame } from "@/game/world/minimap-data";
 import { engineRef } from "./GameClient";
@@ -9,6 +29,7 @@ function fmtTime(s: number) {
   s = Math.max(0, Math.ceil(s));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
+
 function roadColor(highway: string): string {
   if (highway === "trunk" || highway === "trunk_link" || highway === "primary") return "#8d9274";
   if (highway === "secondary" || highway === "tertiary") return "#6d735c";
@@ -54,7 +75,7 @@ function drawOsmMinimap(
     g.stroke();
   }
   if (frame.route.length > 1) {
-    g.strokeStyle = "#f2e35c";
+    g.strokeStyle = "#f2c94c";
     g.lineWidth = 2.2;
     g.setLineDash([5, 4]);
     g.beginPath();
@@ -89,12 +110,12 @@ function drawOsmMinimap(
     g.arc(X(mark.x), Z(mark.z), 2.4, 0, Math.PI * 2);
     g.fill();
   }
-  marker(frame.pickup, "#f2e35c");
+  marker(frame.pickup, "#f2c94c");
   marker(frame.drop, "#51cf66");
   g.restore();
   g.save();
   g.translate(cx, cy);
-  g.fillStyle = "#f2e35c";
+  g.fillStyle = "#f2c94c";
   g.beginPath();
   g.moveTo(0, -9);
   g.lineTo(6, 7);
@@ -103,26 +124,54 @@ function drawOsmMinimap(
   g.closePath();
   g.fill();
   g.restore();
-  g.strokeStyle = "#f2e35c";
+  g.strokeStyle = "#f2c94c";
   g.lineWidth = 2;
   g.beginPath();
   g.arc(cx, cy, cx - 2, 0, Math.PI * 2);
   g.stroke();
 }
 
-export default function UI({ ready, progress }: { ready: boolean; progress: number }) {
+function StarRating({ stars }: { stars: number }) {
+  const full = Math.floor(stars);
+  const half = stars % 1 >= 0.5;
+  return (
+    <div className="nm-stars" aria-label={`${stars} out of 5 stars`}>
+      {Array.from({ length: 5 }, (_, i) => {
+        const on = i < full || (i === full && half);
+        return (
+          <Star
+            key={i}
+            size={22}
+            className={on ? "nm-star nm-star--on" : "nm-star"}
+            fill={on ? "currentColor" : "none"}
+            strokeWidth={on ? 0 : 1.5}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+export default function UI({
+  ready,
+  progress,
+  loadingLabel,
+}: {
+  ready: boolean;
+  progress: number;
+  loadingLabel: string;
+}) {
   const s = useGame();
   const [showBoard, setShowBoard] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const mapRef = useRef<HTMLCanvasElement>(null);
 
-  // minimap painter — throttled to ~15fps to save battery
   useEffect(() => {
     let raf = 0;
     let lastDraw = 0;
     const draw = (now: number) => {
       raf = requestAnimationFrame(draw);
-      if (now - lastDraw < 66) return; // ~15fps
+      if (now - lastDraw < 66) return;
       lastDraw = now;
       const cv = mapRef.current;
       const eng = engineRef.current;
@@ -134,57 +183,95 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
         drawOsmMinimap(g, frame, eng.px, eng.pz, eng.heading);
         return;
       }
-      const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+      const W = cv.width,
+        H = cv.height,
+        cx = W / 2,
+        cy = H / 2;
       g.clearRect(0, 0, W, H);
       g.save();
-      g.beginPath(); g.arc(cx, cy, cx - 2, 0, Math.PI * 2); g.clip();
-      g.fillStyle = "rgba(10,14,10,0.9)"; g.fillRect(0, 0, W, H);
+      g.beginPath();
+      g.arc(cx, cy, cx - 2, 0, Math.PI * 2);
+      g.clip();
+      g.fillStyle = "rgba(10,14,10,0.9)";
+      g.fillRect(0, 0, W, H);
       const scale = 0.85;
-      const px = eng.px, pz = eng.pz, hd = eng.heading;
-      g.translate(cx, cy); g.rotate(-hd + Math.PI);
+      const px = eng.px,
+        pz = eng.pz,
+        hd = eng.heading;
+      g.translate(cx, cy);
+      g.rotate(-hd + Math.PI);
       const X = (x: number) => (x - px) * scale;
       const Z = (z: number) => (z - pz) * scale;
-      // roads
-      g.strokeStyle = "#555"; g.lineWidth = 7;
-      g.beginPath(); g.moveTo(X(-95), Z(0)); g.lineTo(X(95), Z(0)); g.stroke();
-      g.beginPath(); g.moveTo(X(0), Z(-95)); g.lineTo(X(0), Z(95)); g.stroke();
-      g.strokeStyle = "#444"; g.lineWidth = 4;
+      g.strokeStyle = "#555";
+      g.lineWidth = 7;
+      g.beginPath();
+      g.moveTo(X(-95), Z(0));
+      g.lineTo(X(95), Z(0));
+      g.stroke();
+      g.beginPath();
+      g.moveTo(X(0), Z(-95));
+      g.lineTo(X(0), Z(95));
+      g.stroke();
+      g.strokeStyle = "#444";
+      g.lineWidth = 4;
       for (const c of [-60, 60]) {
-        g.beginPath(); g.moveTo(X(-66), Z(c)); g.lineTo(X(66), Z(c)); g.stroke();
-        g.beginPath(); g.moveTo(X(c), Z(-66)); g.lineTo(X(c), Z(66)); g.stroke();
+        g.beginPath();
+        g.moveTo(X(-66), Z(c));
+        g.lineTo(X(66), Z(c));
+        g.stroke();
+        g.beginPath();
+        g.moveTo(X(c), Z(-66));
+        g.lineTo(X(c), Z(66));
+        g.stroke();
       }
-      // route + target
       const o = useGame.getState().order;
       const ph = useGame.getState().phase;
       if (o && (ph === "toPickup" || ph === "toDropoff" || ph === "offer")) {
         const tx = ph === "toDropoff" ? o.dropX : o.pickupX;
         const tz = ph === "toDropoff" ? o.dropZ : o.pickupZ;
-        g.strokeStyle = "#f2e35c"; g.lineWidth = 2.5; g.setLineDash([5, 4]);
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(X(tx), Z(tz)); g.stroke(); g.setLineDash([]);
-        g.fillStyle = ph === "toDropoff" ? "#51cf66" : "#f2e35c";
-        g.beginPath(); g.arc(X(tx), Z(tz), 6, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#f2c94c";
+        g.lineWidth = 2.5;
+        g.setLineDash([5, 4]);
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.lineTo(X(tx), Z(tz));
+        g.stroke();
+        g.setLineDash([]);
+        g.fillStyle = ph === "toDropoff" ? "#51cf66" : "#f2c94c";
+        g.beginPath();
+        g.arc(X(tx), Z(tz), 6, 0, Math.PI * 2);
+        g.fill();
       }
-      // fuel stations on minimap
       if (eng.world?.fuelStations) {
         for (const fs of eng.world.fuelStations) {
-          const fx = X(fs.x), fz = Z(fs.z);
+          const fx = X(fs.x),
+            fz = Z(fs.z);
           g.fillStyle = "#ff922b";
-          g.beginPath(); g.arc(fx, fz, 3.5, 0, Math.PI * 2); g.fill();
-          g.strokeStyle = "#ffffff"; g.lineWidth = 1; g.stroke();
+          g.beginPath();
+          g.arc(fx, fz, 3.5, 0, Math.PI * 2);
+          g.fill();
+          g.strokeStyle = "#ffffff";
+          g.lineWidth = 1;
+          g.stroke();
         }
       }
       g.restore();
-      // player arrow (screen-aligned)
-      g.save(); g.translate(cx, cy);
-      g.fillStyle = "#f2e35c";
-      g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(0, 3.5); g.lineTo(-6, 7); g.closePath(); g.fill();
+      g.save();
+      g.translate(cx, cy);
+      g.fillStyle = "#f2c94c";
+      g.beginPath();
+      g.moveTo(0, -9);
+      g.lineTo(6, 7);
+      g.lineTo(0, 3.5);
+      g.lineTo(-6, 7);
+      g.closePath();
+      g.fill();
       g.restore();
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, [ready]);
 
-  // touch steering joystick — analog with cached rect
   const joyRef = useRef<HTMLDivElement>(null);
   const joyActive = useRef<number | null>(null);
   const joyRect = useRef<DOMRect | null>(null);
@@ -196,8 +283,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       const r = joyRect.current;
       if (!r) return;
       const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
-      const eng = engineRef.current; if (!eng) return;
-      // analog steering: use threshold but also provide proportional input
+      const eng = engineRef.current;
+      if (!eng) return;
       eng.input.left = dx < -0.25;
       eng.input.right = dx > 0.25;
     };
@@ -209,7 +296,11 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       if (joyActive.current !== e.pointerId) return;
       joyActive.current = null;
       joyRect.current = null;
-      const eng = engineRef.current; if (eng) { eng.input.left = false; eng.input.right = false; }
+      const eng = engineRef.current;
+      if (eng) {
+        eng.input.left = false;
+        eng.input.right = false;
+      }
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
@@ -224,202 +315,431 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
   }, [ready]);
 
   const hold = (key: "up" | "down" | "boost") => ({
-    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); const eng = engineRef.current; if (eng) { eng.audio.ensure(); eng.input[key] = true; } },
-    onPointerUp: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
-    onPointerCancel: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
-    onPointerLeave: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
+    onPointerDown: (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      const eng = engineRef.current;
+      if (eng) {
+        eng.audio.ensure();
+        eng.input[key] = true;
+      }
+    },
+    onPointerUp: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
+    onPointerCancel: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
+    onPointerLeave: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
   });
 
   if (!ready) {
     return (
-      <div className="hud-layer" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c" }}>
-        <div className="card pop" style={{ padding: 36, width: 340, textAlign: "center" }}>
-          <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 120, background: "#000", borderRadius: 14, padding: 8 }} />
-          <h2 style={{ margin: "14px 0 6px" }}>Preparing your Night Market shift…</h2>
-          <p style={{ opacity: 0.7, fontSize: 13 }}>Loading Accra · rider · traffic</p>
-          <div className="loading-bar"><div style={{ width: `${progress}%` }} /></div>
+      <div className="hud-layer nm-loading-screen" role="status" aria-live="polite" aria-busy="true">
+        <div className="card nm-loading-card pop">
+          <div className="nm-logo-wrap floaty">
+            <img src="/brand/night-market-logo.png" alt="" className="nm-logo" />
+          </div>
+          <p className="nm-loading-title nm-display">Night Market Rider</p>
+          <p className="nm-loading-step">{loadingLabel}</p>
+          <div className="loading-bar" aria-hidden>
+            <div style={{ width: `${progress}%` }} />
+          </div>
+          <p className="nm-loading-pct">{Math.round(progress)}%</p>
         </div>
       </div>
     );
   }
 
   const eng = engineRef.current;
-  const inGame = ["offer", "toPickup", "pickup", "toDropoff", "deliver", "delivered", "countdown"].includes(s.phase);
+  const inGame = ["offer", "toPickup", "pickup", "toDropoff", "deliver", "delivered", "countdown"].includes(
+    s.phase,
+  );
+  const timerUrgent =
+    s.timeLeft < 15 && (s.phase === "toDropoff" || s.phase === "toPickup");
 
   return (
     <div className="hud-layer">
       {s.phase === "menu" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 46, background: "linear-gradient(transparent 40%, rgba(0,0,0,0.72))" }}>
-          <div className="card pop" style={{ padding: "26px 30px", width: "min(480px, 92vw)", textAlign: "center", pointerEvents: "auto" }}>
-            <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 150, background: "#000", borderRadius: 16, padding: 10 }} />
-            <div style={{ fontSize: 13, letterSpacing: 6, opacity: 0.8, marginTop: 8 }}>NIGHT MARKET</div>
-            <h1 style={{ margin: "2px 0 4px", fontSize: 44, letterSpacing: 2 }}>RIDER</h1>
-            <p style={{ margin: "0 0 14px", opacity: 0.85, fontWeight: 700 }}>Deliver Accra. Beat the clock.</p>
-            <button className="btn btn-primary" style={{ width: "100%", pointerEvents: "auto" }} onClick={() => eng?.startRun()}>START RIDING 🛵</button>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowBoard(true)}>Leaderboard</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowHelp(true)}>How to Play</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => { const v = !s.sound; s.set({ sound: v }); if (eng) eng.audio.setEnabled(v); }}>Sound {s.sound ? "ON" : "OFF"}</button>
+        <div className="modal-backdrop modal-backdrop--menu">
+          <div className="card card-narrow nm-title-screen pop">
+            <div className="nm-logo-wrap floaty">
+              <img src="/brand/night-market-logo.png" alt="Night Market Rider logo" className="nm-logo" />
             </div>
-            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · S/↓ brake · A D steer · SPACE boost · F get off / remount · H horn · ESC pause</p>
+            <p className="nm-eyebrow nm-display">Accra night shift</p>
+            <h1 className="nm-hero-title">Rider</h1>
+            <p className="nm-tagline">Deliver Accra. Beat the clock.</p>
+            <button type="button" className="btn btn-primary" style={{ width: "100%" }} onClick={() => eng?.startRun()} aria-label="Start riding">
+              <Play size={18} aria-hidden />
+              Start riding
+            </button>
+            <div className="btn-row btn-row--title">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowBoard(true)} aria-label="Leaderboard">
+                <Trophy size={18} aria-hidden />
+                <span className="btn-label">Leaderboard</span>
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowHelp(true)} aria-label="How to play">
+                <HelpCircle size={18} aria-hidden />
+                <span className="btn-label">How to play</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                aria-pressed={s.sound}
+                aria-label={s.sound ? "Sound on" : "Sound off"}
+                onClick={() => {
+                  const v = !s.sound;
+                  s.set({ sound: v });
+                  if (eng) eng.audio.setEnabled(v);
+                }}
+              >
+                {s.sound ? <Volume2 size={18} aria-hidden /> : <VolumeX size={18} aria-hidden />}
+                <span className="btn-label">{s.sound ? "Sound on" : "Sound off"}</span>
+              </button>
+            </div>
+            <p className="nm-controls-hint">
+              W/↑ accelerate · S/↓ brake/reverse · A/D steer · Space boost · F dismount · H horn · Esc pause
+            </p>
           </div>
         </div>
       )}
 
       {s.paused && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(360px, 90vw)", pointerEvents: "auto" }}>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>⏸ PAUSED</div>
-            <p style={{ opacity: 0.7, fontSize: 13 }}>Take a breather, rider.</p>
-            <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => eng?.resumeGame()}>RESUME ▶</button>
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => eng?.startRun()}>RESTART</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => eng?.quitToMenu()}>QUIT</button>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(380px, 90vw)" }}>
+            <div id="pause-title" className="nm-display" style={{ fontSize: "1.5rem", fontWeight: 800 }}>
+              <Pause size={22} style={{ verticalAlign: "middle", marginRight: 8 }} aria-hidden />
+              Paused
             </div>
-            <p style={{ fontSize: 12, opacity: 0.6, marginTop: 10 }}>ESC / P to resume</p>
+            <p style={{ opacity: 0.7, fontSize: "0.85rem", marginTop: 8 }}>Take a breather, rider.</p>
+            <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={() => eng?.resumeGame()}>
+              <Play size={18} aria-hidden />
+              Resume
+            </button>
+            <div className="btn-row">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.startRun()}>
+                <RotateCcw size={16} aria-hidden />
+                Restart
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.quitToMenu()}>
+                <LogOut size={16} aria-hidden />
+                Quit
+              </button>
+            </div>
+            <p style={{ fontSize: "0.72rem", opacity: 0.6, marginTop: 12 }}>Esc or P to resume</p>
+            <p className="nm-pause-osm">
+              Map data{" "}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+                © OpenStreetMap contributors
+              </a>
+            </p>
           </div>
         </div>
       )}
 
-      {s.phase === "countdown" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div className="pop" style={{ fontSize: 110, fontWeight: 900, color: "#f2e35c", textShadow: "0 10px 40px rgba(0,0,0,0.6)" }}>
-            {s.countdown > 0 ? s.countdown : "LET'S RIDE!"}
+      {s.phase === "countdown" && !s.paused && (
+        <div className="modal-backdrop" style={{ background: "transparent", zIndex: 12 }}>
+          <div className="nm-countdown pop" aria-live="assertive">
+            {s.countdown > 0 ? s.countdown : "Go!"}
           </div>
         </div>
       )}
 
       {inGame && s.phase !== "countdown" && (
         <>
-          <div style={{ position: "absolute", top: 12, left: 12, display: "flex", gap: 8, alignItems: "center" }}>
-            <span className="pill">🔥 {s.streak} STREAK</span>
-            {s.strikes > 0 && <span className="pill" style={{ borderColor: "#ff6b6b" }}>⚠️ {s.strikes}/3</span>}
-            {!s.paused && (
-              <button className="btn btn-ghost" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => eng?.pauseGame()}>⏸ PAUSE</button>
-            )}
-            <button className="btn btn-ghost" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => eng?.toggleFoot()}>
-              {s.onFoot ? (s.nearBike ? "F MOUNT" : "ON FOOT") : "F GET OFF"}
-            </button>
-          </div>
-          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <span className="pill" style={{ fontSize: 16, borderColor: s.timeLeft < 15 && (s.phase === "toDropoff" || s.phase === "toPickup") ? "#ff6b6b" : "rgba(255,255,255,0.16)" }}>
-              ⏱ {(s.phase === "toDropoff" || s.phase === "toPickup") ? fmtTime(s.timeLeft) : s.order ? fmtTime(s.order.timeTotal) : "--:--"}
-            </span>
-            {s.runStats.shiftTimeLeft > 0 && (
-              <span className="pill" style={{ fontSize: 11, opacity: 0.85 }}>Shift {fmtTime(s.runStats.shiftTimeLeft)}</span>
-            )}
-          </div>
-          <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 8 }}>
-            <span className="pill">GHS {s.earnings.toFixed(2)}</span>
-            <span className="pill">⭐ {s.rating.toFixed(1)}</span>
-          </div>
-          {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
-            <div style={{ position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", textAlign: "center" }}>
-              <span className="pill" style={{ background: "#f2e35c", color: "#111" }}>{s.turnHint}</span>
+          <div className="hud-top">
+            <div className="hud-top-left">
+              <div className="hud-top-left-cluster">
+                <span className="pill">
+                  <Flame size={14} aria-hidden />
+                  {s.streak} streak
+                </span>
+                {s.strikes > 0 && (
+                  <span className="pill pill--urgent">
+                    <AlertTriangle size={14} aria-hidden />
+                    {s.strikes}/3
+                  </span>
+                )}
+                {!s.paused && (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => eng?.pauseGame()} aria-label="Pause game">
+                    <Pause size={14} aria-hidden />
+                    Pause
+                  </button>
+                )}
+              </div>
+              <button type="button" className="btn btn-ghost btn-sm hud-top-foot-btn" onClick={() => eng?.toggleFoot()} aria-label={s.onFoot ? "Mount bike" : "Dismount bike"}>
+                <UserRound size={14} aria-hidden />
+                {s.onFoot ? (s.nearBike ? "F mount" : "On foot") : "F off"}
+              </button>
             </div>
-          )}
-          <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
+            <div className="hud-top-center">
+              <span className={`pill pill--timer ${timerUrgent ? "pill--urgent" : ""}`}>
+                <Clock size={15} aria-hidden />
+                {(s.phase === "toDropoff" || s.phase === "toPickup")
+                  ? fmtTime(s.timeLeft)
+                  : s.order
+                    ? fmtTime(s.order.timeTotal)
+                    : "--:--"}
+              </span>
+              {s.runStats.shiftTimeLeft > 0 && (
+                <span className="pill" style={{ fontSize: "0.68rem", opacity: 0.9 }}>
+                  Shift {fmtTime(s.runStats.shiftTimeLeft)}
+                </span>
+              )}
+            </div>
+            <div className="hud-top-right">
+              <span className="pill pill--money">
+                <Banknote size={14} aria-hidden />
+                GHS {s.earnings.toFixed(2)}
+              </span>
+              <span className="pill pill--rating">
+                <Star size={14} aria-hidden />
+                {s.rating.toFixed(1)}
+              </span>
+            </div>
+            <div className="hud-top-phone">
+              <DeliveryPhone onAccept={() => eng?.acceptOrder()} />
+            </div>
+            {s.turnHint && (s.phase === "toPickup" || s.phase === "toDropoff") && (
+              <div className="hud-top-nav hud-turn-hint">
+                <span className="pill pill--hint pop">{s.turnHint}</span>
+              </div>
+            )}
+          </div>
           {s.banner && (
-            <div style={{ position: "absolute", top: "30%", width: "100%", textAlign: "center" }}>
-              <span className="pop pill" style={{ fontSize: 20, background: "#ff922b", color: "#111", border: "none", padding: "10px 22px" }}>{s.banner}</span>
+            <div className="hud-banner">
+              <span className="pop pill">{s.banner}</span>
             </div>
           )}
-          <div style={{ position: "absolute", left: 12, bottom: 110, display: "flex", flexDirection: "column", gap: 6 }}>
-            {s.toasts.map((t) => <span key={t.id} className="pill pop" style={{ background: "rgba(0,0,0,0.75)" }}>{t.text}</span>)}
+          <div className="hud-toasts" aria-live="polite">
+            {s.toasts.map((t) => (
+              <span key={t.id} className="pill pop">
+                {t.text}
+              </span>
+            ))}
           </div>
-          {/* boost + speed */}
-          <div style={{ position: "absolute", right: 14, bottom: 110, width: 130 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 3, color: s.fuel < 20 ? '#ff6b6b' : '#fff' }}>⛽ FUEL {Math.round(s.fuel)}%</div>
-            <div className="loading-bar" style={{ marginBottom: 6 }}><div style={{ width: `${Math.round(s.fuel)}%`, background: s.fuel < 20 ? '#ff6b6b' : s.fuel < 40 ? '#ff922b' : '#51cf66' }} /></div>
-            <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 4 }}>{s.boost > 15 ? "BOOST — SPACE" : "BOOST…"}</div>
-            <div className="loading-bar"><div style={{ width: `${Math.round(s.boost)}%` }} /></div>
-            <div style={{ fontSize: 12, fontWeight: 800, marginTop: 6 }}>{s.speedKmh} km/h · {s.deliveries} deliveries · {s.score.toLocaleString()} pts</div>
+          <div className="hud-stats-panel">
+            <div className={`hud-stat-label ${s.fuel < 20 ? "pill--urgent" : ""}`} style={{ color: s.fuel < 20 ? undefined : "inherit" }}>
+              <Fuel size={13} aria-hidden />
+              Fuel {Math.round(s.fuel)}%
+            </div>
+            <div className={`loading-bar loading-bar--fuel ${s.fuel >= 20 ? "" : ""}`}>
+              <div
+                style={{
+                  width: `${Math.round(s.fuel)}%`,
+                  background:
+                    s.fuel < 20
+                      ? undefined
+                      : s.fuel < 40
+                        ? "linear-gradient(90deg,#ff922b,#ffb347)"
+                        : "linear-gradient(90deg,#006b3f,#6ee7a8)",
+                }}
+              />
+            </div>
+            <div className="hud-stat-label" style={{ marginTop: 8 }}>
+              <Zap size={13} aria-hidden />
+              {s.boost > 15 ? "Boost ready" : "Boost…"}
+            </div>
+            <div className="loading-bar loading-bar--boost">
+              <div style={{ width: `${Math.round(s.boost)}%` }} />
+            </div>
+            <div className="hud-stat-meta">
+              <Gauge size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} aria-hidden />
+              {s.speedKmh} km/h · {s.deliveries} drops · {s.score.toLocaleString()} pts
+            </div>
           </div>
-          <canvas ref={mapRef} id="minimap" width={150} height={150} style={{ position: "absolute", left: 12, bottom: 12, width: 110, height: 110 }} />
-          {/* touch controls */}
-          <div ref={joyRef}
-            style={{ position: "absolute", left: 140, bottom: 12, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.3)", pointerEvents: "auto", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800 }}>
-            ◀ STEER ▶
-          </div>
-          <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 8 }}>
-            <div className="touch-btn" {...hold("down")}>{s.onFoot ? "BACK" : "BRAKE"}</div>
-            <div className="touch-btn" {...hold("up")}>{s.onFoot ? "WALK" : "GAS"}</div>
-            <div className="touch-btn" {...hold("boost")}>BOOST</div>
+          <div className="hud-bottom-cluster">
+            <canvas ref={mapRef} id="minimap" width={150} height={150} aria-label="Minimap" />
+            <div className="nm-touch-layer">
+              <div ref={joyRef} className="touch-joy" aria-label="Steering joystick">
+                <div className="touch-joy-inner" />
+              </div>
+              <div className="touch-pad">
+                <div className="touch-btn" role="button" tabIndex={0} {...hold("down")}>
+                  {s.onFoot ? "Back" : "Brake"}
+                </div>
+                <div className="touch-btn" role="button" tabIndex={0} {...hold("up")}>
+                  {s.onFoot ? "Walk" : "Gas"}
+                </div>
+                <div className="touch-btn touch-btn--boost" role="button" tabIndex={0} {...hold("boost")}>
+                  Boost
+                </div>
+              </div>
+            </div>
           </div>
         </>
       )}
 
-      {s.phase === "gameover" && (() => {
-        const summary = s.runSummary;
-        const onTimePct = summary ? Math.round(summary.onTimeRate * 100) : Math.round((s.runStats.deliveriesOnTime / Math.max(1, s.runStats.deliveryAttempts)) * 100);
-        const distKm = summary ? summary.distanceMetres / 1000 : s.runStats.distanceMetres / 1000;
-        const stars = summary?.stars ?? 3;
-        const starText = summary?.starLabel ?? "Solid shift";
-        return (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(480px, 92vw)", pointerEvents: "auto" }}>
-            <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 90, background: "#000", borderRadius: 12, padding: 6 }} />
-            <h2 style={{ margin: "8px 0 2px" }}>SHIFT RESULTS</h2>
-            <p style={{ margin: "0 0 10px", opacity: 0.75, fontSize: 13 }}>{summary?.reason.label ?? "Shift ended"}</p>
-            <div style={{ fontSize: 28, letterSpacing: 2, marginBottom: 8 }}>{"★".repeat(Math.floor(stars))}{stars % 1 ? "½" : ""}{"☆".repeat(5 - Math.ceil(stars))}</div>
-            <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85, marginBottom: 10 }}>{starText} · ⭐ {s.rating.toFixed(1)} rider rating</div>
-            <div style={{ lineHeight: 1.75, fontWeight: 700, textAlign: "left", fontSize: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Deliveries</span><span>{s.deliveries}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Earnings</span><span>GHS {s.earnings.toFixed(2)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Tips</span><span>GHS {(summary?.tipsGhs ?? s.runStats.tipsGhs).toFixed(2)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>On-time rate</span><span>{onTimePct}%</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Distance ridden</span><span>{distKm.toFixed(1)} km</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Crashes</span><span>{summary?.crashCount ?? s.runStats.crashCount}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Best streak</span><span>🔥 {s.bestStreak}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.12)" }}><span>Score</span><span>{s.score.toLocaleString()}</span></div>
+      {s.phase === "gameover" &&
+        (() => {
+          const summary = s.runSummary;
+          const onTimePct = summary
+            ? Math.round(summary.onTimeRate * 100)
+            : Math.round((s.runStats.deliveriesOnTime / Math.max(1, s.runStats.deliveryAttempts)) * 100);
+          const distKm = summary ? summary.distanceMetres / 1000 : s.runStats.distanceMetres / 1000;
+          const stars = summary?.stars ?? 3;
+          const starText = summary?.starLabel ?? "Solid shift";
+          return (
+            <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="results-title">
+              <div className="card card-narrow nm-results pop">
+                <div className="nm-logo-wrap" style={{ margin: "0 auto" }}>
+                  <img src="/brand/night-market-logo.png" alt="" className="nm-logo" style={{ width: 72 }} />
+                </div>
+                <h2 id="results-title">Shift results</h2>
+                <p style={{ margin: "0 0 8px", opacity: 0.75, fontSize: "0.85rem" }}>{summary?.reason.label ?? "Shift ended"}</p>
+                <StarRating stars={stars} />
+                <div style={{ fontSize: "0.82rem", fontWeight: 700, opacity: 0.88, marginBottom: 4 }}>
+                  {starText} · {s.rating.toFixed(1)} rider rating
+                </div>
+                <div className="nm-stat-grid">
+                  <div className="nm-stat-row">
+                    <span>Deliveries</span>
+                    <span>{s.deliveries}</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>Earnings</span>
+                    <span>GHS {s.earnings.toFixed(2)}</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>Tips</span>
+                    <span>GHS {(summary?.tipsGhs ?? s.runStats.tipsGhs).toFixed(2)}</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>On-time rate</span>
+                    <span>{onTimePct}%</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>Distance ridden</span>
+                    <span>{distKm.toFixed(1)} km</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>Crashes</span>
+                    <span>{summary?.crashCount ?? s.runStats.crashCount}</span>
+                  </div>
+                  <div className="nm-stat-row">
+                    <span>Best streak</span>
+                    <span>{s.bestStreak}</span>
+                  </div>
+                  <div className="nm-stat-row nm-stat-row--total">
+                    <span>Score</span>
+                    <span>{s.score.toLocaleString()}</span>
+                  </div>
+                </div>
+                <label className="sr-only" htmlFor="nm-nickname">
+                  Nickname for leaderboard
+                </label>
+                <input
+                  id="nm-nickname"
+                  className="nm-input"
+                  value={s.nickname}
+                  onChange={(e) => {
+                    s.set({ nickname: e.target.value.slice(0, 14) });
+                    try {
+                      localStorage.setItem("nm_name", e.target.value.slice(0, 14));
+                    } catch {}
+                  }}
+                  placeholder="Your nickname"
+                  autoComplete="nickname"
+                />
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      saveBoard(s.nickname || "Rider", s.score);
+                      eng?.startRun();
+                    }}
+                  >
+                    <Play size={16} aria-hidden />
+                    Play again
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowBoard(true)}>
+                    <Trophy size={16} aria-hidden />
+                    Leaderboard
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: "100%", marginTop: 8 }}
+                  onClick={() => {
+                    const txt = `Night Market Rider: GHS ${s.earnings.toFixed(2)} · ${s.deliveries} deliveries · ${s.score.toLocaleString()} pts`;
+                    if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
+                    else {
+                      try {
+                        navigator.clipboard.writeText(txt);
+                      } catch {}
+                      s.pushToast("Score copied — share am!");
+                    }
+                  }}
+                >
+                  <Share2 size={16} aria-hidden />
+                  Share score
+                </button>
+              </div>
             </div>
-            <input
-              value={s.nickname}
-              onChange={(e) => { s.set({ nickname: e.target.value.slice(0, 14) }); try { localStorage.setItem("nm_name", e.target.value.slice(0, 14)); } catch {} }}
-              placeholder="Your nickname"
-              style={{ marginTop: 12, width: "100%", padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 800, textAlign: "center" }}
-            />
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { saveBoard(s.nickname || "Rider", s.score); eng?.startRun(); }}>PLAY AGAIN</button>
-              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowBoard(true)}>LEADERBOARD</button>
-            </div>
-            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => {
-              const txt = `Night Market Rider: GHS ${s.earnings.toFixed(2)} · ${s.deliveries} deliveries · ${s.score.toLocaleString()} pts 🛵`;
-              if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
-              else { try { navigator.clipboard.writeText(txt); } catch {} s.pushToast("Score copied — share am! 📣"); }
-            }}>SHARE SCORE</button>
-          </div>
-        </div>
-        );
-      })()}
+          );
+        })()}
 
       {(showBoard || showHelp) && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>
-          <div className="card pop" style={{ padding: 24, width: "min(420px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={showBoard ? "board-title" : "help-title"}
+          onClick={() => {
+            setShowBoard(false);
+            setShowHelp(false);
+          }}
+        >
+          <div className="card nm-modal pop" style={{ padding: 24, width: "min(440px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
             {showBoard ? (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>ACCRA TOP RIDERS</h3>
+                <h3 id="board-title">Accra top riders</h3>
                 {s.leaderboard.length === 0 && <p style={{ opacity: 0.7 }}>No shifts yet — be the first!</p>}
-                {s.leaderboard.map((r, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800 }}><span>{i + 1}. {r.name}</span><span>{r.score.toLocaleString()}</span></div>)}
-                <div style={{ fontSize: 12, opacity: 0.6, marginTop: 8 }}>Local leaderboard · Supabase sync coming soon.</div>
+                {s.leaderboard.map((r, i) => (
+                  <div key={i} className="nm-leaderboard-row">
+                    <span>
+                      {i + 1}. {r.name}
+                    </span>
+                    <span>{r.score.toLocaleString()}</span>
+                  </div>
+                ))}
+                <p className="nm-modal-note">Local leaderboard · Supabase sync coming soon.</p>
               </>
             ) : (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>How to Play</h3>
-                <div style={{ fontSize: 14, lineHeight: 1.7 }}>
-                  1. Accept an order and follow the road to the vendor.<br />
-                  2. Pick up, then follow the route to the customer before time runs out.<br />
-                  3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
-                  4. Three strikes — crashes or late orders — end the shift early. Your shift also clocks out after 12 minutes. Delivery streaks raise your pay.<br />
-                  5. Watch the phone for night events: chop rush surge pay, police checkpoints, and rain that cuts grip.<br />
-                  6. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster. Hold S / ↓ to brake; from a stop it shifts into reverse (slow creep still works on an empty tank).<br />
-                  7. Night Market coins add score, XP, and a little boost.<br />
-                  8. Press F to get off and walk. Walk back to the parked bike and press F to remount. Delivery still follows you on foot.<br />
-                  9. The phone on the right is your chop order. Tap the top bar to tuck it while you ride. Fast deliveries can earn tips.
+                <h3 id="help-title">How to play</h3>
+                <div className="nm-help-body">
+                  <ol>
+                    <li>Accept an order and follow the road to the vendor.</li>
+                    <li>Pick up, then follow the route to the customer before time runs out.</li>
+                    <li>Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.</li>
+                    <li>Three strikes — crashes or late orders — end the shift early. Your shift also clocks out after 12 minutes.</li>
+                    <li>Watch the phone for night events: chop rush surge pay, police checkpoints, and rain.</li>
+                    <li>Stop beside a fuel station to refill. Boost with Space; hold S/↓ to brake or reverse from a stop.</li>
+                    <li>Press F to walk; return to the parked bike and press F to remount.</li>
+                    <li>Tap the phone header to tuck it while riding. Fast deliveries can earn tips.</li>
+                  </ol>
                 </div>
               </>
             )}
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>CLOSE</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: 14 }}
+              onClick={() => {
+                setShowBoard(false);
+                setShowHelp(false);
+              }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
