@@ -7,6 +7,7 @@ import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
 import { formatWorldDistance, polylineLength, worldUnitsToMetres } from "./world/distance";
+import { updateDriveSpeed } from "./drive";
 import { BOOST_FUEL_PER_SECOND, CRUISE_FUEL_PER_SECOND, fuelBrand } from "./world/fuel-stations";
 import { buildMinimapFrame, type MinimapFrame } from "./world/minimap-data";
 import { cueFromRoute } from "./world/navigation";
@@ -760,13 +761,17 @@ export class Engine {
     const boostMax = 37;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
-    const wantReverse = this.input.down && Math.abs(this.speed) <= 0.3;
-    const target = !canDrive ? 0 : this.input.up ? (this.boostOn ? boostMax : maxSp) : wantReverse ? -5.5 : 0;
-    const accel = this.input.down ? 34 : 20;
-    // Can't accelerate without fuel
-    const effectiveTarget = s.fuel <= 0 ? 0 : target;
-    if (this.speed < effectiveTarget) this.speed = Math.min(effectiveTarget, this.speed + accel * dt);
-    else if (this.speed > effectiveTarget) this.speed = Math.max(effectiveTarget, this.speed - (this.input.up ? 4 : 26) * dt);
+    this.speed = updateDriveSpeed({
+      speed: this.speed,
+      up: this.input.up,
+      down: this.input.down,
+      canDrive,
+      boostOn: this.boostOn,
+      maxSpeed: maxSp,
+      boostMax,
+      fuel: s.fuel,
+      dt,
+    });
     if (!this.onRoad(this.px, this.pz) && this.speed > 8) this.speed = Math.max(8, this.speed - 14 * dt);
     if (this.boostOn) s.boost = Math.max(0, s.boost - 22 * dt);
     else s.boost = Math.min(100, s.boost + (this.speed > 12 ? 6 : 3.5) * dt);
@@ -776,10 +781,8 @@ export class Engine {
       const fuelRate = this.boostOn ? BOOST_FUEL_PER_SECOND : CRUISE_FUEL_PER_SECOND;
       s.fuel = Math.max(0, s.fuel - fuelRate * dt);
     }
-    // Out of fuel — can't accelerate
     if (!this.onFoot && s.fuel <= 0) {
-      this.speed = Math.max(0, this.speed - 12 * dt); // coast to stop
-      if (this.speed < 0.5 && this._fuelWarned !== true) {
+      if (Math.abs(this.speed) < 0.5 && this._fuelWarned !== true) {
         this._fuelWarned = true;
         s.pushToast("⛽ OUT OF FUEL! Find a fuel station!");
         s.set({ banner: "OUT OF FUEL ⛽" });
