@@ -25,6 +25,7 @@ Pause from the menu bar. Three strikes (crashes or late deliveries) end your shi
 - Dynamic night events: order surge pay, police checkpoints, rain showers (shown on the delivery phone)
 - End-of-shift results: earnings, tips, on-time rate, distance, crashes, streak, star rating, leaderboard
 - Debug events in the browser: add `?events=order_surge,police_checkpoint,rain_shower` or set `localStorage.nm_debug_events` to the same list
+- Demo a shorter shift with `?shift=90` (seconds, 30–720)
 
 ## Run locally
 

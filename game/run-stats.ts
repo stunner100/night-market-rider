@@ -68,3 +68,17 @@ export function tipFromTimeLeft(secondsLeft: number, orderTimeTotal: number): nu
 
 /** Night shift length before the rider clocks out automatically. */
 export const SHIFT_SECONDS = 12 * 60;
+
+/** Optional `?shift=90` shortens the shift for demos (30–720 seconds). */
+export function readShiftSeconds(defaultSec = SHIFT_SECONDS): number {
+  if (typeof window === "undefined") return defaultSec;
+  try {
+    const raw = new URLSearchParams(window.location.search).get("shift");
+    if (!raw) return defaultSec;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return defaultSec;
+    return Math.min(defaultSec, Math.max(30, Math.round(parsed)));
+  } catch {
+    return defaultSec;
+  }
+}

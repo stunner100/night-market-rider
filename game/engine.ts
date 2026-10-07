@@ -11,7 +11,7 @@ import {
   type ActiveNightEvent,
   type NightEventSpec,
 } from "./night-events";
-import { buildRunSummary, SHIFT_SECONDS, tipFromTimeLeft } from "./run-stats";
+import { buildRunSummary, readShiftSeconds, tipFromTimeLeft } from "./run-stats";
 import { GameAudio } from "./audio";
 import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
@@ -460,7 +460,7 @@ export class Engine {
       activeEvent: null, eventHud: null, runSummary: null,
       runStats: {
         tipsGhs: 0, distanceMetres: 0, crashCount: 0,
-        deliveriesOnTime: 0, deliveryAttempts: 0, shiftTimeLeft: SHIFT_SECONDS,
+        deliveriesOnTime: 0, deliveryAttempts: 0, shiftTimeLeft: readShiftSeconds(),
       },
     });
     this.onFoot = false;
