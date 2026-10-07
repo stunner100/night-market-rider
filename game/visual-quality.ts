@@ -14,7 +14,7 @@ export function applyVisualQuality(engine: Engine) {
 
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = mobile ? 1.04 : 1.08;
+  renderer.toneMappingExposure = mobile ? 1.06 : 1.12;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -106,7 +106,7 @@ export function applyVisualQuality(engine: Engine) {
   const originalApplySky = engine.applySky.bind(engine);
   engine.applySky = (night: number) => {
     originalApplySky(night);
-    renderer.toneMappingExposure = (mobile ? 0.92 : 0.98) + night * 0.04;
+    renderer.toneMappingExposure = (mobile ? 0.94 : 1.0) + night * 0.05;
     if (scene.fog instanceof THREE.FogExp2) {
       const duskFog = mobile ? 0.0092 : 0.008;
       scene.fog.density = duskFog + night * 0.0015;
