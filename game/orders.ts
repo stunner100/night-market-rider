@@ -98,6 +98,19 @@ export const GEO_PADS = [
 
 export const MIN_PICKUP_METRES = 280;
 
+/** Append pickup stop name unless the vendor label already covers that area. */
+export function joinVendorStop(vendorTemplate: string, stopName: string): string {
+  const template = vendorTemplate.trim();
+  const stop = stopName.trim();
+  if (!stop) return template;
+  const tl = template.toLowerCase();
+  const sl = stop.toLowerCase();
+  if (tl.includes(sl) || sl.includes(tl)) return template;
+  const areaHint = template.split("·").pop()?.trim().toLowerCase() ?? "";
+  if (areaHint.length > 2 && sl.includes(areaHint)) return template;
+  return `${template} · ${stop}`;
+}
+
 export function pickupStops(): OrderStop[] {
   return ORDER_STOPS.filter(s => s.role === "vendor" || s.role === "both");
 }
@@ -165,7 +178,7 @@ export function buildOrder(index: number, payoutMult = 1): OrderDraft {
   const priced = priceOrder(index, pickup, drop, payoutMult);
   return {
     id: index + 1,
-    vendor: `${v.vendor} · ${pickup.name}`,
+    vendor: joinVendorStop(v.vendor, pickup.name),
     food: v.food,
     emoji: v.emoji,
     customer: CUSTOMERS[index % CUSTOMERS.length],
@@ -202,7 +215,10 @@ export function separateOrderFromRider(
   if (!drop) return order;
   return {
     ...order,
-    vendor: order.vendor.replace(/ · [^·]+$/, ` · ${pickup.name}`),
+    vendor: joinVendorStop(
+      order.vendor.replace(/\s·\s[^·]+$/, "").trim() || order.vendor,
+      pickup.name,
+    ),
     dropoff: drop.name,
     ...priceOrder(index, pickup, drop),
     pickupX: pickup.x,
