@@ -47,13 +47,15 @@ export class ActivePedestrians {
   private walkers: Walker[] = [];
   private spawnTimer = 0;
   private readonly target: number;
+  private readonly detail: "simple" | "full";
 
   constructor(
     private runtime: AccraWorldRuntime,
     private parent: THREE.Group,
     mobile: boolean,
   ) {
-    this.target = mobile ? 4 : 8;
+    this.target = mobile ? 8 : 16;
+    this.detail = mobile ? "simple" : "full";
   }
 
   start(): void {
@@ -67,7 +69,7 @@ export class ActivePedestrians {
         scale: 0.94 + (i % 4) * 0.02,
         bulk: 0.95,
         feminine: i % 3 === 0,
-        detail: this.target <= 4 ? "simple" : "full",
+        detail: this.detail,
       });
       rig.group.visible = false;
       this.parent.add(rig.group);
@@ -99,7 +101,7 @@ export class ActivePedestrians {
         continue;
       }
       const away = Math.hypot(walker.mesh.position.x - playerX, walker.mesh.position.z - playerZ);
-      if (away > 78) {
+      if (away > 96) {
         this.park(walker);
         continue;
       }
@@ -107,17 +109,19 @@ export class ActivePedestrians {
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = 0.45;
+    this.spawnTimer = 0.32;
+    let born = 0;
     for (const walker of this.walkers) {
       if (walker.active) continue;
-      if (this.place(walker, playerX, playerZ)) break;
+      if (this.place(walker, playerX, playerZ)) born += 1;
+      if (born >= 3) break;
     }
   }
 
   private place(walker: Walker, playerX: number, playerZ: number): boolean {
     const roads = this.runtime.visibleRoads(playerX, playerZ, 1);
     if (roads.length === 0) return false;
-    for (let attempt = 0; attempt < 6; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
       const road = roads[Math.floor(Math.random() * roads.length)];
       if (road.points.length < 2 || isMajorRoad(road.highway)) continue;
       const index = Math.floor(Math.random() * (road.points.length - 1));
@@ -125,6 +129,8 @@ export class ActivePedestrians {
       if (!frame) continue;
       for (const side of [1, -1] as const) {
         const spot = offsetSide(frame, side, 1.5);
+        const away = Math.hypot(spot.x - playerX, spot.z - playerZ);
+        if (away > 64) continue;
         if (!pedestrianSpawnOk({
           x: spot.x,
           z: spot.z,

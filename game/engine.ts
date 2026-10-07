@@ -25,6 +25,60 @@ const particleGeo = new THREE.SphereGeometry(0.15, 6, 5);
 
 const NIGHT_FLOOR = 0.86;
 
+type RideTrafficKind = "car" | "taxi" | "trotro" | "bus" | "okada";
+
+function rideTrafficKind(kind: string): RideTrafficKind {
+  switch (kind) {
+    case "car":
+    case "taxi":
+    case "trotro":
+    case "bus":
+    case "okada":
+      return kind;
+    default:
+      return "car";
+  }
+}
+
+function trafficReach(kind: string): number {
+  const named = rideTrafficKind(kind);
+  switch (named) {
+    case "bus":
+      return 3.2;
+    case "trotro":
+      return 2.55;
+    case "okada":
+      return 1.35;
+    case "car":
+    case "taxi":
+      return 2.5;
+    default: {
+      const neverKind: never = named;
+      return neverKind;
+    }
+  }
+}
+
+function trafficCrashLine(kind: string): string {
+  const named = rideTrafficKind(kind);
+  switch (named) {
+    case "trotro":
+      return "🚐 Trotro bump! Slow am.";
+    case "bus":
+      return "🚌 Bus bump! Easy oo.";
+    case "taxi":
+      return "🚕 Taxi crash! Chale, easy oo.";
+    case "okada":
+      return "🏍️ Okada crash! Chale, easy oo.";
+    case "car":
+      return "🚗 Crash! Chale, easy oo.";
+    default: {
+      const neverKind: never = named;
+      return neverKind;
+    }
+  }
+}
+
 // Pre-allocated Color objects for applySky
 const _skyDay = new THREE.Color(0x87ceeb);
 const _skySunset = new THREE.Color(0xc46a3a);
@@ -819,8 +873,8 @@ export class Engine {
       for (const c of activeTraffic) {
         if (!c.mesh.visible) continue;
         const d = Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z);
-        const reach = c.kind === "bus" || c.kind === "trotro" ? 3.2 : 2.5;
-        const crashLine = c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : c.kind === "bus" ? "🚌 Bus bump! Easy oo." : c.kind === "taxi" ? "🚕 Taxi crash! Chale, easy oo." : "🚗 Crash! Chale, easy oo.";
+        const reach = trafficReach(c.kind);
+        const crashLine = trafficCrashLine(c.kind);
         if (d < reach && Math.abs(this.speed) > 4) { this.crash(crashLine); break; }
         else if (d < reach && this.crashCool <= 0) { this.speed *= 0.4; }
         if (d > reach && d < reach + 1.8 && Math.abs(this.speed) > 16 && this.nearCool <= 0) {

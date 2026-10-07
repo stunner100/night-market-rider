@@ -1,12 +1,19 @@
 import * as THREE from "three";
-import { createBusMesh, createCarMesh, createTaxiMesh, createTrotroMesh } from "../models";
+import { createBusMesh, createCarMesh, createOkadaMesh, createTaxiMesh, createTrotroMesh } from "../models";
 import type { AccraWorldRuntime } from "./accra-runtime";
 import type { TrafficBody } from "./gameplay-actors";
 import { pickContinuation } from "./road-follow";
 import type { RoadGraph } from "./road-graph";
 import { allowsVehicle, vehicleSpawnOk } from "./spawn-validity";
 
-type VehicleKind = "car" | "taxi" | "trotro" | "bus";
+type VehicleKind = "car" | "taxi" | "trotro" | "bus" | "okada";
+
+const MIX: VehicleKind[] = ["okada", "taxi", "trotro", "car", "okada", "taxi", "trotro", "okada", "car", "bus"];
+const OKADA_COLORS = [0xf4c542, 0x2f9e44, 0xe03131, 0x212529, 0xf8f9fa, 0x1971c2];
+const SPAWN_RADIUS = 125;
+const DESPAWN_RADIUS = 168;
+const SPAWN_GAP = 11;
+const SPAWNS_PER_TICK = 3;
 
 interface Vehicle extends TrafficBody {
   active: boolean;
@@ -37,6 +44,26 @@ function makeMesh(kind: VehicleKind, index: number): THREE.Group {
       return createTrotroMesh();
     case "bus":
       return createBusMesh();
+    case "okada":
+      return createOkadaMesh(OKADA_COLORS[index % OKADA_COLORS.length]);
+    default: {
+      const neverKind: never = kind;
+      return neverKind;
+    }
+  }
+}
+
+function laneFor(kind: VehicleKind): number {
+  switch (kind) {
+    case "okada":
+      return 1.35;
+    case "car":
+    case "taxi":
+      return 0.9;
+    case "trotro":
+      return 0.95;
+    case "bus":
+      return 0.45;
     default: {
       const neverKind: never = kind;
       return neverKind;
@@ -54,6 +81,8 @@ function cruiseFor(kind: VehicleKind): number {
       return 6.5 + Math.random() * 2.4;
     case "bus":
       return 7 + Math.random() * 2.2;
+    case "okada":
+      return 9.5 + Math.random() * 3.2;
     default: {
       const neverKind: never = kind;
       return neverKind;
@@ -72,14 +101,13 @@ export class TrafficSystem {
     private parent: THREE.Group,
     mobile: boolean,
   ) {
-    this.target = mobile ? 6 : 12;
+    this.target = mobile ? 10 : 22;
   }
 
   start(): void {
     if (!this.graph || this.vehicles.length > 0) return;
-    const mix: VehicleKind[] = ["car", "taxi", "trotro", "car", "taxi", "bus", "trotro", "car"];
     for (let i = 0; i < this.target; i++) {
-      const kind = mix[i % mix.length];
+      const kind = MIX[i % MIX.length];
       const mesh = makeMesh(kind, i);
       mesh.visible = false;
       this.parent.add(mesh);
@@ -108,25 +136,37 @@ export class TrafficSystem {
       if (!vehicle.active) continue;
       this.advance(vehicle, dt, playerX, playerZ);
       const away = Math.hypot(vehicle.mesh.position.x - playerX, vehicle.mesh.position.z - playerZ);
-      if (away > 200) this.park(vehicle);
+      if (away > DESPAWN_RADIUS) this.park(vehicle);
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = 0.35;
+    this.spawnTimer = 0.28;
     const live = this.vehicles.filter(vehicle => vehicle.active).length;
     if (live >= this.target) return;
-    for (let n = live; n < this.target; n++) {
-      const idle = this.vehicles.find(vehicle => !vehicle.active);
-      if (!idle || !this.place(idle, playerX, playerZ)) break;
+    let placed = 0;
+    for (const idle of this.vehicles) {
+      if (idle.active) continue;
+      if (this.place(idle, playerX, playerZ)) placed += 1;
+      if (placed >= SPAWNS_PER_TICK) break;
     }
+  }
+
+  private pose(vehicle: Vehicle, t: number): { x: number; z: number } {
+    const x = vehicle.ax + (vehicle.bx - vehicle.ax) * t;
+    const z = vehicle.az + (vehicle.bz - vehicle.az) * t;
+    const dirX = vehicle.bx - vehicle.ax;
+    const dirZ = vehicle.bz - vehicle.az;
+    const len = Math.hypot(dirX, dirZ) || 1;
+    const lane = laneFor(vehicle.kind);
+    return { x: x + (dirZ / len) * lane, z: z - (dirX / len) * lane };
   }
 
   private place(vehicle: Vehicle, playerX: number, playerZ: number): boolean {
     const graph = this.graph;
     if (!graph) return false;
-    const nodes = graph.nodesInRadius(playerX, playerZ, 150);
+    const nodes = graph.nodesInRadius(playerX, playerZ, SPAWN_RADIUS);
     if (nodes.length === 0) return false;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 12; attempt++) {
       const node = nodes[Math.floor(Math.random() * nodes.length)];
       const options = graph.departures(node.id).filter(option => allowsVehicle(vehicle.kind, option.edge.highway));
       if (options.length === 0) continue;
@@ -134,19 +174,19 @@ export class TrafficSystem {
       const length = Math.hypot(choice.bx - choice.ax, choice.bz - choice.az);
       if (length < 8) continue;
       const t = 0.2 + Math.random() * 0.6;
-      const x = choice.ax + (choice.bx - choice.ax) * t;
-      const z = choice.az + (choice.bz - choice.az) * t;
-      if (!vehicleSpawnOk({
-        x, z, playerX, playerZ,
-        inBuilding: !!this.runtime.collidesBuilding(x, z, 1.1),
-        minPlayer: 18,
-      })) continue;
-      if (this.vehicles.some(other => other.active && other !== vehicle && Math.hypot(other.mesh.position.x - x, other.mesh.position.z - z) < 12)) continue;
       vehicle.ax = choice.ax;
       vehicle.az = choice.az;
       vehicle.bx = choice.bx;
       vehicle.bz = choice.bz;
       vehicle.length = length;
+      const posed = this.pose(vehicle, t);
+      const body = vehicle.kind === "okada" ? 0.55 : 1.1;
+      if (!vehicleSpawnOk({
+        x: posed.x, z: posed.z, playerX, playerZ,
+        inBuilding: !!this.runtime.collidesBuilding(posed.x, posed.z, body),
+        minPlayer: 16,
+      })) continue;
+      if (this.vehicles.some(other => other.active && other !== vehicle && Math.hypot(other.mesh.position.x - posed.x, other.mesh.position.z - posed.z) < SPAWN_GAP)) continue;
       vehicle.traveled = t * length;
       vehicle.toId = choice.edge.to;
       vehicle.highway = choice.edge.highway;
@@ -154,7 +194,7 @@ export class TrafficSystem {
       vehicle.stopped = 0;
       vehicle.active = true;
       vehicle.mesh.visible = true;
-      vehicle.mesh.position.set(x, 0, z);
+      vehicle.mesh.position.set(posed.x, 0, posed.z);
       vehicle.mesh.rotation.y = Math.atan2(choice.bx - choice.ax, choice.bz - choice.az);
       return true;
     }
@@ -171,7 +211,8 @@ export class TrafficSystem {
     const dirX = vehicle.bx - vehicle.ax;
     const dirZ = vehicle.bz - vehicle.az;
     const dirLen = Math.hypot(dirX, dirZ) || 1;
-    if (vehicle.kind === "trotro" && vehicle.traveled > vehicle.length * 0.18 && vehicle.traveled < vehicle.length * 0.78 && Math.random() < dt * 0.018) {
+    const pullsOver = vehicle.highway !== "service" && vehicle.highway !== "living_street";
+    if (vehicle.kind === "trotro" && pullsOver && vehicle.traveled > vehicle.length * 0.18 && vehicle.traveled < vehicle.length * 0.78 && Math.random() < dt * 0.012) {
       vehicle.stopped = 2.5;
       return;
     }
@@ -202,13 +243,13 @@ export class TrafficSystem {
       }
     }
     const t = vehicle.length > 0 ? vehicle.traveled / vehicle.length : 0;
-    const x = vehicle.ax + (vehicle.bx - vehicle.ax) * t;
-    const z = vehicle.az + (vehicle.bz - vehicle.az) * t;
-    if (this.runtime.collidesBuilding(x, z, 0.9)) {
+    const posed = this.pose(vehicle, t);
+    const body = vehicle.kind === "okada" ? 0.45 : 0.9;
+    if (this.runtime.collidesBuilding(posed.x, posed.z, body)) {
       this.park(vehicle);
       return;
     }
-    vehicle.mesh.position.set(x, 0, z);
+    vehicle.mesh.position.set(posed.x, 0, posed.z);
     vehicle.mesh.rotation.y = Math.atan2(vehicle.bx - vehicle.ax, vehicle.bz - vehicle.az);
     for (const wheel of vehicle.wheels) wheel.rotation.x += speed * dt * 2.2;
     this.paintBrake(vehicle, speed < vehicle.cruise * 0.65);
