@@ -237,7 +237,7 @@ export class Engine {
     const zones = order
       ? [{ x: order.pickupX, z: order.pickupZ, r: 22 }, { x: order.dropX, z: order.dropZ, r: 22 }]
       : [];
-    this.osmPlay.update(dt, this.px, this.pz, elapsed, zones);
+    this.osmPlay.update(dt, this.px, this.pz, elapsed, zones, this.heading);
   }
 
   private placeActor(x: number, z: number): { x: number; z: number; yaw: number } {

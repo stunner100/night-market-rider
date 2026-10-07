@@ -31,9 +31,9 @@ export class OsmGameplay {
     console.info(`Accra gameplay online: traffic pool ready, ${this.fuel.bodies().length} fuel stations`);
   }
 
-  update(dt: number, x: number, z: number, elapsed: number, zones: KeepClear[]): void {
-    this.traffic.update(dt, x, z);
-    this.pedestrians.update(dt, elapsed, x, z);
+  update(dt: number, x: number, z: number, elapsed: number, zones: KeepClear[], heading = 0): void {
+    this.traffic.update(dt, x, z, heading);
+    this.pedestrians.update(dt, elapsed, x, z, heading);
     this.fuel.update(x, z);
     const fuelZones = this.fuel.bodies().map(station => ({ x: station.x, z: station.z, r: 16 }));
     this.hazards.update(dt, elapsed, x, z, zones.concat(fuelZones));

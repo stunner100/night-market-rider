@@ -3,7 +3,7 @@ import { createBusMesh, createCarMesh, createOkadaMesh, createTaxiMesh, createTr
 import type { AccraWorldRuntime } from "./accra-runtime";
 import type { TrafficBody } from "./gameplay-actors";
 import { pickContinuation } from "./road-follow";
-import type { RoadGraph } from "./road-graph";
+import { type Departure, type RoadGraph } from "./road-graph";
 import { allowsVehicle, vehicleSpawnOk } from "./spawn-validity";
 
 type VehicleKind = "car" | "taxi" | "trotro" | "bus" | "okada";
@@ -130,7 +130,7 @@ export class TrafficSystem {
     return this.vehicles.filter(vehicle => vehicle.active);
   }
 
-  update(dt: number, playerX: number, playerZ: number): void {
+  update(dt: number, playerX: number, playerZ: number, heading = 0): void {
     if (!this.graph) return;
     for (const vehicle of this.vehicles) {
       if (!vehicle.active) continue;
@@ -146,7 +146,7 @@ export class TrafficSystem {
     let placed = 0;
     for (const idle of this.vehicles) {
       if (idle.active) continue;
-      if (this.place(idle, playerX, playerZ)) placed += 1;
+      if (this.place(idle, playerX, playerZ, heading)) placed += 1;
       if (placed >= SPAWNS_PER_TICK) break;
     }
   }
@@ -161,25 +161,74 @@ export class TrafficSystem {
     return { x: x + (dirZ / len) * lane, z: z - (dirX / len) * lane };
   }
 
-  private place(vehicle: Vehicle, playerX: number, playerZ: number): boolean {
+  private trafficAhead(playerX: number, playerZ: number, heading: number, kind: VehicleKind): Departure[] {
+    const graph = this.graph;
+    if (!graph) return [];
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const options: Departure[] = [];
+    for (const node of graph.nodesInRadius(playerX, playerZ, 55)) {
+      for (const option of graph.departures(node.id)) {
+        if (!allowsVehicle(kind, option.edge.highway)) continue;
+        const edgeX = option.bx - option.ax;
+        const edgeZ = option.bz - option.az;
+        const len = Math.hypot(edgeX, edgeZ) || 1;
+        if ((edgeX * fx + edgeZ * fz) / len < 0.25) continue;
+        const edgeLen2 = edgeX * edgeX + edgeZ * edgeZ || 1;
+        const targetX = playerX + fx * 26;
+        const targetZ = playerZ + fz * 26;
+        let t = ((targetX - option.ax) * edgeX + (targetZ - option.az) * edgeZ) / edgeLen2;
+        t = Math.min(0.92, Math.max(0.08, t));
+        const x = option.ax + edgeX * t;
+        const z = option.az + edgeZ * t;
+        const dx = x - playerX;
+        const dz = z - playerZ;
+        const along = dx * fx + dz * fz;
+        const lateral = Math.abs(dx * fz - dz * fx);
+        if (along < 12 || along > 50 || lateral > 8) continue;
+        options.push(option);
+      }
+    }
+    return options;
+  }
+
+  private place(vehicle: Vehicle, playerX: number, playerZ: number, heading: number): boolean {
     const graph = this.graph;
     if (!graph) return false;
-    const nodes = graph.nodesInRadius(playerX, playerZ, SPAWN_RADIUS);
-    if (nodes.length === 0) return false;
+    const ahead = this.trafficAhead(playerX, playerZ, heading, vehicle.kind);
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
     for (let attempt = 0; attempt < 12; attempt++) {
-      const node = nodes[Math.floor(Math.random() * nodes.length)];
-      const options = graph.departures(node.id).filter(option => allowsVehicle(vehicle.kind, option.edge.highway));
-      if (options.length === 0) continue;
-      const choice = options[Math.floor(Math.random() * options.length)];
+      let choice: Departure | undefined;
+      if (ahead.length > 0 && (attempt < 8 || Math.random() < 0.65)) {
+        choice = ahead[Math.floor(Math.random() * ahead.length)];
+      } else {
+        const nodes = graph.nodesInRadius(playerX, playerZ, SPAWN_RADIUS);
+        if (nodes.length === 0) continue;
+        const node = nodes[Math.floor(Math.random() * nodes.length)];
+        const options = graph.departures(node.id).filter(option => allowsVehicle(vehicle.kind, option.edge.highway));
+        if (options.length === 0) continue;
+        choice = options[Math.floor(Math.random() * options.length)];
+      }
       const length = Math.hypot(choice.bx - choice.ax, choice.bz - choice.az);
       if (length < 8) continue;
-      const t = 0.2 + Math.random() * 0.6;
+      const reach = 16 + Math.random() * 24;
+      const targetX = playerX + fx * reach;
+      const targetZ = playerZ + fz * reach;
+      const edgeX = choice.bx - choice.ax;
+      const edgeZ = choice.bz - choice.az;
+      const edgeLen2 = edgeX * edgeX + edgeZ * edgeZ || 1;
+      let t = ((targetX - choice.ax) * edgeX + (targetZ - choice.az) * edgeZ) / edgeLen2;
+      t = Math.min(0.92, Math.max(0.08, t));
       vehicle.ax = choice.ax;
       vehicle.az = choice.az;
       vehicle.bx = choice.bx;
       vehicle.bz = choice.bz;
       vehicle.length = length;
       const posed = this.pose(vehicle, t);
+      const along = (posed.x - playerX) * fx + (posed.z - playerZ) * fz;
+      const lateral = Math.abs((posed.x - playerX) * fz - (posed.z - playerZ) * fx);
+      if (attempt < 8 && (along < 12 || along > 48 || lateral > 14)) continue;
       const body = vehicle.kind === "okada" ? 0.55 : 1.1;
       if (!vehicleSpawnOk({
         x: posed.x, z: posed.z, playerX, playerZ,

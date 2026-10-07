@@ -93,7 +93,7 @@ export class ActivePedestrians {
     return this.walkers.filter(walker => walker.active);
   }
 
-  update(dt: number, elapsed: number, playerX: number, playerZ: number): void {
+  update(dt: number, elapsed: number, playerX: number, playerZ: number, heading = 0): void {
     for (const walker of this.walkers) {
       if (!walker.active) continue;
       if ((walker.tumble ?? 0) > 0) {
@@ -113,62 +113,54 @@ export class ActivePedestrians {
     let born = 0;
     for (const walker of this.walkers) {
       if (walker.active) continue;
-      if (this.place(walker, playerX, playerZ)) born += 1;
+      if (this.place(walker, playerX, playerZ, heading)) born += 1;
       if (born >= 3) break;
     }
   }
 
-  private place(walker: Walker, playerX: number, playerZ: number): boolean {
+  private place(walker: Walker, playerX: number, playerZ: number, heading: number): boolean {
     const roads = this.runtime.visibleRoads(playerX, playerZ, 1);
     if (roads.length === 0) return false;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const road = roads[Math.floor(Math.random() * roads.length)];
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const spots: { road: WorldRoad; index: number; side: 1 | -1; x: number; z: number; along: number }[] = [];
+    for (const road of roads) {
       if (road.points.length < 2 || isMajorRoad(road.highway)) continue;
-      const index = Math.floor(Math.random() * (road.points.length - 1));
-      const frame = frameFromSegment(road, index);
-      if (!frame) continue;
-      for (const side of [1, -1] as const) {
-        const spot = offsetSide(frame, side, 1.5);
-        const away = Math.hypot(spot.x - playerX, spot.z - playerZ);
-        if (away > 64) continue;
-        if (!pedestrianSpawnOk({
-          x: spot.x,
-          z: spot.z,
-          playerX,
-          playerZ,
-          inBuilding: !!this.runtime.collidesBuilding(spot.x, spot.z, 0.45),
-          highway: road.highway,
-          distFromCenter: Math.hypot(spot.x - frame.x, spot.z - frame.z),
-          roadWidth: frame.width,
-          minPlayer: 14,
-        })) continue;
-        const path = this.sidewalkPath(road, index, side);
-        if (path.length < 2) continue;
-        walker.path = path;
-        walker.index = 0;
-        walker.wait = 0;
-        walker.tumble = 0;
-        walker.active = true;
-        walker.mesh.visible = true;
-        walker.mesh.position.set(path[0].x, 0, path[0].z);
-        walker.mesh.rotation.z = 0;
-        return true;
+      for (let index = 0; index < road.points.length - 1; index++) {
+        const frame = frameFromSegment(road, index);
+        if (!frame) continue;
+        for (const side of [1, -1] as const) {
+          const spot = offsetSide(frame, side, 1.5);
+          const dx = spot.x - playerX;
+          const dz = spot.z - playerZ;
+          const along = dx * fx + dz * fz;
+          const lateral = Math.abs(dx * fz - dz * fx);
+          if (along < 8 || along > 46 || lateral > 8) continue;
+          if (this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) continue;
+          spots.push({ road, index, side, x: spot.x, z: spot.z, along });
+        }
       }
     }
-    return false;
-  }
-
-  private sidewalkPath(road: WorldRoad, index: number, side: 1 | -1): WorldPoint[] {
-    const path: WorldPoint[] = [];
-    const end = Math.min(road.points.length - 1, index + 5);
-    for (let i = index; i < end; i++) {
-      const frame = frameFromSegment(road, i);
-      if (!frame) continue;
-      const spot = offsetSide(frame, side, 1.5);
-      if (this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) continue;
-      path.push(spot);
+    spots.sort((a, b) => a.along - b.along);
+    for (const spot of spots) {
+      if (this.walkers.some(other => other.active && Math.hypot(other.mesh.position.x - spot.x, other.mesh.position.z - spot.z) < 5)) continue;
+      const ahead = spots
+        .filter(other => other.side === spot.side && other.along >= spot.along - 0.5 && other.along < spot.along + 22)
+        .sort((a, b) => a.along - b.along)
+        .slice(0, 5);
+      const path = ahead.map(other => ({ x: other.x, z: other.z }));
+      if (path.length < 2) path.push({ x: spot.x + fx * 4, z: spot.z + fz * 4 });
+      walker.path = path;
+      walker.index = 0;
+      walker.wait = 0;
+      walker.tumble = 0;
+      walker.active = true;
+      walker.mesh.visible = true;
+      walker.mesh.position.set(path[0].x, 0, path[0].z);
+      walker.mesh.rotation.z = 0;
+      return true;
     }
-    return path;
+    return false;
   }
 
   private step(walker: Walker, dt: number, elapsed: number): void {
