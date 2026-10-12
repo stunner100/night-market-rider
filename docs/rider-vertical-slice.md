@@ -94,3 +94,10 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
   
   Dede's intro call reacts to the type. The choice saves with progress. The welcome screen greets returning riders and offers "Change who you be" (the head start is not paid twice). The phone profile shows the type. Game keys ignore typing in text fields.
 - Validation: TypeScript and 40 tests pass (3 new). Browser: night street with sodium sky and headlight; full onboarding by keyboard (name → 2,2,2,1 → Campus Hustler reveal → shift starts at 17:30, Dede's campus line, save written). Test identity removed from local storage afterwards.
+
+## Real Ghanaian music on the bike, 12 October 2026
+
+- The default radio station is "Ghana Top 2025": the public 21charts playlist on SoundCloud, streamed through SoundCloud's official embedded mini player and Widget API (`components/SoundCloudRadio.tsx`). No audio is downloaded or bundled. The player and a link to the playlist stay visible for attribution.
+- It plays only while the rider is on the bike. Dismounting, pausing, muting or changing station pauses it, and remounting resumes the same track. Each shift starts at a random track, region-blocked tracks are skipped on error, the volume ducks while the phone rings, and the radio caption shows the current title and artist.
+- Browsers block audio until the player has interacted with the page, so a blocked start retries on the next key press or tap. If SoundCloud cannot load (offline or blocked), the caption says so and R switches to the synth stations, which now also play only while mounted.
+- Validation: TypeScript and 40 tests pass. Browser: the playlist loaded and shuffled ("Effiakuma Broken Heart — Kofi Kinaata"), played after user input, paused on dismount and resumed on mount, paused on station change. The test identity was removed afterwards.

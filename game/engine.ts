@@ -257,7 +257,7 @@ export class Engine {
     const s = useGame.getState();
     const next = s.radio + 1 >= STATIONS.length ? -1 : s.radio + 1;
     this.audio.ensure();
-    this.audio.setStation(next);
+    this.audio.setStation(STATIONS[next]?.beat ?? null);
     this.radioTimer = 6;
     const st = STATIONS[next];
     s.set({ radio: next, radioCaption: st ? `📻 ${st.name} ${st.freq}` : "" });
@@ -266,7 +266,7 @@ export class Engine {
   private radioSay(line: string) {
     const s = useGame.getState();
     const st = STATIONS[s.radio];
-    if (st) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
+    if (st && !st.soundcloud) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
   }
 
   private clearCheckpoint() {
@@ -362,6 +362,7 @@ export class Engine {
     if (dark !== s.dumsor) s.set({ dumsor: dark });
     if (dark) { this.world.hemi.intensity *= 0.62; this.world.ambient.intensity *= 0.62; }
     this.audio.setGenerator(dark ? 1 : 0);
+    this.audio.setMusicLive(s.mounted);
     this.lightTimer -= dt;
     if (this.lightTimer <= 0 && this.osmActive) {
       this.lightTimer = 0.25;
@@ -383,7 +384,11 @@ export class Engine {
     // Radio captions
     if (s.radio >= 0) {
       this.radioTimer -= dt;
-      if (this.radioTimer <= 0) { this.radioTimer = 16; s.set({ radioCaption: radioCaption(s.radio, this.radioBeat++) }); }
+      if (this.radioTimer <= 0) {
+        this.radioTimer = 16;
+        const caption = radioCaption(s.radio, this.radioBeat++);
+        if (caption) s.set({ radioCaption: caption });
+      }
     }
   }
 

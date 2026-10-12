@@ -57,9 +57,11 @@ test('checkpoint: riding through or leaving mid-stop is fined; settling clears a
   assert.equal(reduceCheckpoint(initialCheckpoint(), { type: 'settle' }).stage, 'ahead', 'cannot settle before stopping');
 });
 
-test('radio alternates songs with DJ chatter; talk radio is all talk', () => {
-  assert.match(radioCaption(0, 0), /^♪/);
-  assert.match(radioCaption(0, 1), new RegExp(STATIONS[0].dj));
-  assert.ok(radioCaption(2, 0).startsWith(STATIONS[2].dj));
+test('radio alternates songs with DJ chatter; talk radio is all talk; streaming reports itself', () => {
+  assert.ok(STATIONS[0].soundcloud);
+  assert.equal(radioCaption(0, 0), '', 'the SoundCloud widget supplies now-playing');
+  assert.match(radioCaption(1, 0), /^♪/);
+  assert.match(radioCaption(1, 1), new RegExp(STATIONS[1].dj));
+  assert.ok(radioCaption(3, 0).startsWith(STATIONS[3].dj));
   assert.equal(radioCaption(-1, 0), '');
 });

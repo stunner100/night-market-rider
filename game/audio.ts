@@ -1,8 +1,8 @@
 // Tiny synthesized audio: engine, traffic ambience, sfx + afrobeats-inspired loop. No copyrighted assets.
-/** Beat per radio station index (see game/radio.ts); missing = no music. */
-const BEATS: Record<number, { interval: number; pattern: number[]; bass: number[]; pluck?: number[] }> = {
-  0: { interval: 150, pattern: [0, 0, 1, 0, 2, 0, 1, 3], bass: [110, 110, 130.8, 98], pluck: [659, 784, 880, 784, 659, 587, 659, 523] },
-  1: { interval: 125, pattern: [0, 1, 3, 1, 2, 1, 3, 1], bass: [98, 98, 123.5, 87.3] },
+/** Synth grooves for the fictional radio stations (see game/radio.ts). */
+const BEATS: Record<string, { interval: number; pattern: number[]; bass: number[]; pluck?: number[] }> = {
+  highlife: { interval: 150, pattern: [0, 0, 1, 0, 2, 0, 1, 3], bass: [110, 110, 130.8, 98], pluck: [659, 784, 880, 784, 659, 587, 659, 523] },
+  hiplife: { interval: 125, pattern: [0, 1, 3, 1, 2, 1, 3, 1], bass: [98, 98, 123.5, 87.3] },
 };
 export class GameAudio {
   ctx: AudioContext | null = null;
@@ -13,8 +13,8 @@ export class GameAudio {
   musicTimer: number | null = null;
   enabled = true;
   step = 0;
-  /** Index into STATIONS beat settings; -1 is radio off. */
-  station = 0;
+  /** Current synth groove; null when the radio is off or streaming. */
+  beat: string | null = null;
   private rainGain: GainNode | null = null;
   private genGain: GainNode | null = null;
   private loops: AudioScheduledSourceNode[] = [];
@@ -68,9 +68,13 @@ export class GameAudio {
   setGenerator(level: number) {
     if (this.ctx && this.genGain) this.genGain.gain.setTargetAtTime(level * 0.05, this.ctx.currentTime, 0.5);
   }
-  /** Switch the radio; each station has its own groove (or none for talk/off). */
-  setStation(index: number) {
-    this.station = index;
+  /** Radio only plays on the bike: fade the synth groove in and out. */
+  setMusicLive(on: boolean) {
+    if (this.ctx && this.musicGain) this.musicGain.gain.setTargetAtTime(on ? 0.35 : 0, this.ctx.currentTime, 0.25);
+  }
+  /** Switch the synth groove (null for talk, streaming or off). */
+  setStation(beat: string | null) {
+    this.beat = beat;
     if (this.musicTimer != null) { clearInterval(this.musicTimer); this.musicTimer = null; }
     this.startMusic();
   }
@@ -134,7 +138,7 @@ export class GameAudio {
   // Per-station groove: highlife (guitar plucks), hiplife (faster, heavier), talk (no beat).
   startMusic() {
     if (this.musicTimer != null || !this.ctx || !this.musicGain || this._disposed) return;
-    const groove = BEATS[this.station];
+    const groove = this.beat ? BEATS[this.beat] : undefined;
     if (!groove) return;
     const pattern = groove.pattern; // drum accents
     this.musicTimer = window.setInterval(() => {

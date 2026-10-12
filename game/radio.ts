@@ -1,11 +1,16 @@
 /**
- * In-game radio. Fictional stations, DJs and songs; the beat for each station
- * lives in GameAudio. The DJ also reacts to rain and dumsor.
+ * In-game radio. The first station streams a real Ghana playlist through
+ * SoundCloud's embedded player; the others are fictional stations whose beat
+ * lives in GameAudio. Their DJs react to rain and dumsor.
  */
 export interface Station {
   name: string;
   freq: string;
   dj: string;
+  /** Public SoundCloud playlist streamed through the official widget. */
+  soundcloud?: string;
+  /** Synth groove in GameAudio for fictional stations. */
+  beat?: "highlife" | "hiplife";
   /** "Artist — Title" for music stations. */
   songs: string[];
   chatter: string[];
@@ -13,7 +18,12 @@ export interface Station {
 
 export const STATIONS: Station[] = [
   {
-    name: "Akwaaba FM", freq: "101.3", dj: "DJ Kwesi Ampofo",
+    name: "Ghana Top 2025", freq: "SoundCloud", dj: "21Charts",
+    soundcloud: "https://soundcloud.com/21charts/sets/ghana-songs-2025-todays-top",
+    songs: [], chatter: [],
+  },
+  {
+    name: "Akwaaba FM", freq: "101.3", dj: "DJ Kwesi Ampofo", beat: "highlife",
     songs: [
       "Nana Kwame & The Akwaaba Band — Sweet Mother Accra",
       "Ewurama Mensah — Kokoo Nkwan",
@@ -28,7 +38,7 @@ export const STATIONS: Station[] = [
     ],
   },
   {
-    name: "Okponglo Hiplife", freq: "96.5", dj: "DJ Showboy Kwame",
+    name: "Okponglo Hiplife", freq: "96.5", dj: "DJ Showboy Kwame", beat: "hiplife",
     songs: [
       "Young Kweku — Shito Dey",
       "Ama Spark ft. Kofi Strings — Waakye Love",
@@ -66,7 +76,8 @@ export const RADIO_REACTIONS = {
 /** Next caption: alternate songs and DJ chatter (talk radio is all chatter). */
 export function radioCaption(stationIndex: number, beat: number): string {
   const st = STATIONS[stationIndex];
-  if (!st) return "";
+  // The SoundCloud widget reports its own "now playing".
+  if (!st || st.soundcloud) return "";
   if (!st.songs.length) return `${st.dj}: “${st.chatter[beat % st.chatter.length]}”`;
   if (beat % 2 === 1) return `${st.dj}: “${st.chatter[Math.floor(beat / 2) % st.chatter.length]}”`;
   return `♪ ${st.songs[Math.floor(beat / 2) % st.songs.length]}`;
