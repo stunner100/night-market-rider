@@ -82,3 +82,15 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
 - `game/checkpoint.ts`: from the second order, ~45% of routes have a police checkpoint 150–230 m ahead. Warned at 70 m; stop within 9 m to show licence (4 s) or "settle am" (GH₵5). Riding through or leaving mid-check is a GH₵20 fine, −0.2 rating and a call from Dede.
 - `game/radio.ts`: Akwaaba FM 101.3 (highlife with guitar plucks), Okponglo Hiplife 96.5 (faster beat) and Legon Talk 88.7 (traffic and talk), all fictional. R or the radio pill cycles stations; captions alternate songs and DJ lines, and the DJ reacts to rain and dumsor.
 - Validation: TypeScript and 37 tests pass (5 new for dumsor, rain, checkpoint and radio). Browser at 534 px and 1000 px: night windows, rain with HUD chip and DJ reaction, dumsor chip, checkpoint warn → stop → licence → cleared, trotro destination board and mate bubble. The in-app browser throttled the hidden page, so checkpoint and shout steps were advanced through `window.__nm.engine.update` rather than ridden live.
+
+## Night shift mood and rider identity, 12 October 2026
+
+- Night: the shift starts at 17:30 golden hour and is fully dark about 1.5 minutes in. The sky horizon carries a sodium-orange city glow, while ambient, hemisphere, moonlight, image-based light and night exposure are all lower, so lamps, windows and the stronger headlight do the work. Streetlights cast additive orange pools on the road (they go out in dumsor), stall lanterns cast flickering pools, and streetlight heads glow sodium orange.
+- `game/archetypes.ts` and `components/Onboarding.tsx`: first-time players enter a name, answer four Pidgin questions (Saturday morning, how you move, favourite chop, police stop) and get a rider type with a home, an upside and a wahala:
+  - Okada Boy: top speed +8%, more checkpoints.
+  - Campus Hustler: tips +15%, food damage +15%.
+  - Burger (returnee): GH₵100 once, food damage +25%.
+  - Chop Bar Pikin: vendors cook twice as fast, Maame calls more.
+  
+  Dede's intro call reacts to the type. The choice saves with progress. The welcome screen greets returning riders and offers "Change who you be" (the head start is not paid twice). The phone profile shows the type. Game keys ignore typing in text fields.
+- Validation: TypeScript and 40 tests pass (3 new). Browser: night street with sodium sky and headlight; full onboarding by keyboard (name → 2,2,2,1 → Campus Hustler reveal → shift starts at 17:30, Dede's campus line, save written). Test identity removed from local storage afterwards.

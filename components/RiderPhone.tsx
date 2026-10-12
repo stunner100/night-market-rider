@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useGame } from "@/game/store";
 import { customerDetails } from "@/game/delivery/customer";
 import { CONTACTS } from "@/game/calls";
+import { ARCHETYPES } from "@/game/archetypes";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
 const tabs = [
@@ -212,6 +213,11 @@ export default function RiderPhone() {
               <>
                 <div className="call-avatar">{s.nickname[0]}</div>
                 <h3>{s.nickname} · Night Market Rider</h3>
+                {s.archetype && (
+                  <p>
+                    {ARCHETYPES[s.archetype].emoji} {ARCHETYPES[s.archetype].name} · {ARCHETYPES[s.archetype].upside}
+                  </p>
+                )}
                 <p>
                   Level {1 + Math.floor(s.xp / 2000)} · {s.xp} XP
                 </p>

@@ -5,6 +5,8 @@ import { formatMetres } from "@/game/world/distance";
 import type { MinimapFrame } from "@/game/world/minimap-data";
 import RiderPhone from "./RiderPhone";
 import PhoneCall from "./PhoneCall";
+import Onboarding from "./Onboarding";
+import { ARCHETYPES } from "@/game/archetypes";
 import { LOADING_LINES } from "@/game/voice";
 import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar } from "./DeliveryPanels";
 import { customerDetails } from "@/game/delivery/customer";
@@ -440,11 +442,21 @@ export default function UI({
           <p className="welcome-ticker">{LOADING_LINES[0]}</p>
           <p className="eyebrow">AKWAABA · LEGON · OKPONGLO · SHIASHIE</p>
           <h1>RIDER</h1>
-          <p>Chale, Accra dey wait. Your moto, your hustle, your shift.</p>
-          <button className="btn btn-primary" onClick={() => eng?.startRun()}>
+          <p>
+            {s.archetype
+              ? `Welcome back, ${s.nickname} · ${ARCHETYPES[s.archetype].emoji} ${ARCHETYPES[s.archetype].name}`
+              : "Chale, Accra dey wait. Your moto, your hustle, your shift."}
+          </p>
+          <button
+            className="btn btn-primary"
+            onClick={() => (s.archetype ? eng?.startRun() : s.set({ onboarding: true }))}
+          >
             ENTER ACCRA
           </button>
           <div className="welcome-links">
+            {s.archetype && (
+              <button onClick={() => s.set({ onboarding: true })}>Change who you be</button>
+            )}
             <button onClick={() => setShowHelp(true)}>How e dey work</button>
             <button onClick={() => setShowBoard(true)}>Top riders</button>
             <button
@@ -710,6 +722,7 @@ export default function UI({
           <PhoneCall />
         </>
       )}
+      {s.onboarding && s.phase === "menu" && <Onboarding />}
       {s.paused && (
         <div className="modal-shade">
           <section className="dialog">

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { buildAccraBlock } from "./accra-block";
 import { buildDeliveryPlace } from "./delivery-place";
 import { pointInPolygon, distancePointToSegment } from "./coordinates";
-import { billboardTexture, textTexture, vendorUmbrellaTexture } from "../textures";
+import { billboardTexture, lightPoolTexture, textTexture, vendorUmbrellaTexture } from "../textures";
 import { BILLBOARDS, KIOSK_SIGNS, STREET_FOOD, pickSeeded } from "./accra-signs";
 import type { WorldChunk, WorldRoad } from "./types";
 
@@ -187,7 +187,7 @@ function addStreetlights(group: THREE.Group, placements: Placement[], mobile: bo
     new THREE.BoxGeometry(0.95, 0.12, 0.28),
     new THREE.MeshStandardMaterial({
       color: 0xe9e5ce,
-      emissive: 0xffe7a8,
+      emissive: 0xffb35c,
       emissiveIntensity: 0.26,
       roughness: 0.45,
       metalness: 0.18,
@@ -203,6 +203,26 @@ function addStreetlights(group: THREE.Group, placements: Placement[], mobile: bo
     heads.name = "accra-streetlight-heads";
     group.add(heads);
   }
+  addLightPools(group, placements, "streetlight-pool", 0xffa04a, 11);
+}
+
+/** Additive glow on the ground under a light; opacity is driven at night by the runtime. */
+function addLightPools(group: THREE.Group, placements: { x: number; z: number }[], name: string, color: number, size: number): void {
+  if (!placements.length) return;
+  const material = new THREE.MeshBasicMaterial({
+    map: lightPoolTexture(), color, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+  });
+  material.name = name;
+  const geo = new THREE.PlaneGeometry(size, size);
+  geo.rotateX(-Math.PI / 2);
+  const pools = new THREE.InstancedMesh(geo, material, placements.length);
+  const dummy = new THREE.Object3D();
+  placements.forEach((p, i) => { dummy.position.set(p.x, 0.06, p.z); dummy.updateMatrix(); pools.setMatrixAt(i, dummy.matrix); });
+  pools.instanceMatrix.needsUpdate = true;
+  pools.renderOrder = 2;
+  pools.name = name;
+  group.add(pools);
 }
 
 function addParkedCars(group: THREE.Group, placements: Placement[], mobile: boolean): void {
@@ -384,6 +404,7 @@ function addFoodStands(group: THREE.Group, placements: Placement[], mobile: bool
     stand.name = "accra-food-stand";
     group.add(stand);
   }
+  addLightPools(group, placements, "lantern-pool", 0xffb347, 4.5);
 }
 
 export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THREE.Group {

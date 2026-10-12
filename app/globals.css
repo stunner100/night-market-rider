@@ -1466,3 +1466,133 @@ kbd {
     display: none;
   }
 }
+
+/* ---- Onboarding: name, quiz, reveal ---- */
+.onboarding-shade {
+  z-index: 20;
+}
+.onboarding {
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.onboarding-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.onboarding-top button {
+  background: none;
+  border: 0;
+  color: #c5cbc6;
+  font-size: 13px;
+  cursor: pointer;
+}
+.onboarding-dots {
+  display: flex;
+  gap: 5px;
+}
+.onboarding-dots i {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: #ffffff2a;
+}
+.onboarding-dots i.on {
+  background: #f2e35c;
+}
+.onboarding h2 {
+  margin: 4px 0 14px;
+}
+.onboarding-name {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #ffffff33;
+  border-radius: 12px;
+  background: #0b1310;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+.onboarding-answers {
+  display: grid;
+  gap: 8px;
+}
+.onboarding-answers button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #ffffff22;
+  border-radius: 12px;
+  background: #0b1310;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.onboarding-answers button:hover,
+.onboarding-answers button:focus-visible {
+  border-color: #f2e35c;
+}
+.onboarding-answers kbd {
+  margin: 0;
+}
+.onboarding-rolling {
+  padding: 30px 0;
+  text-align: center;
+}
+.onboarding-spinner {
+  font-size: 34px;
+  letter-spacing: 8px;
+  animation: onboarding-pulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes onboarding-pulse {
+  from { opacity: 0.4; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1.04); }
+}
+.onboarding-reveal {
+  text-align: center;
+}
+.reveal-emoji {
+  font-size: 54px;
+  margin: 6px 0;
+}
+.onboarding-reveal h2 span {
+  color: #f2e35c;
+}
+.onboarding-reveal dl {
+  margin: 14px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #0b1310;
+  text-align: left;
+}
+.onboarding-reveal dl div {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.onboarding-reveal dt {
+  color: #f2e35c;
+  font-weight: 800;
+}
+.onboarding-reveal dd {
+  margin: 0;
+}
+.onboarding-reveal .btn {
+  width: 100%;
+  margin-top: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-spinner {
+    animation: none;
+  }
+}

@@ -3,6 +3,7 @@ import { useGame } from "@/game/store";
 import { cedis, orderDetails, packedItems, prepSeconds } from "@/game/delivery/order-details";
 import { engineRef } from "./GameClient";
 import { CHECKPOINT } from "@/game/checkpoint";
+import { perksFor } from "@/game/archetypes";
 import { STATIONS } from "@/game/radio";
 
 const TICKET_STAGES = ["vendor", "preparing", "collect", "checkBag", "fixingBag"];
@@ -61,7 +62,7 @@ export function PickupTicket() {
       {stage === "preparing" && (
         <div className="prep-bar" aria-label="Preparation progress">
           <span>Dey pack your order · {Math.ceil(s.delivery.remaining)} s</span>
-          <i style={{ width: `${Math.max(4, 100 - (s.delivery.remaining / prepSeconds(s.orderIndex)) * 100)}%` }} />
+          <i style={{ width: `${Math.max(4, 100 - (s.delivery.remaining / (prepSeconds(s.orderIndex) * perksFor(s.archetype).prep)) * 100)}%` }} />
         </div>
       )}
       {stage === "fixingBag" && <p className="ticket-note">{d.vendorPerson} dey add the missing item…</p>}

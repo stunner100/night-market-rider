@@ -682,6 +682,24 @@ export function billboardTexture(title: string, sub: string, bg: string, fg: str
   return t;
 }
 
+/** Soft radial falloff for additive pools of light on the ground. */
+export function lightPoolTexture(): THREE.CanvasTexture {
+  const key = "light-pool";
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const [c, g] = makeCanvas(128, 128);
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.35, "rgba(255,255,255,0.55)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  cache.set(key, t);
+  return t;
+}
+
 /** Car paint texture */
 export function carPaintTexture(color: string): THREE.CanvasTexture {
   const key = `carpaint-${color}`;

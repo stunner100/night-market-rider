@@ -1,3 +1,5 @@
+import type { ArchetypeId } from "./archetypes";
+
 /**
  * People who call and text the rider. Game events raise triggers; the director
  * queues scripts and paces them so calls never land on top of a delivery task.
@@ -22,6 +24,7 @@ export type Trigger =
 
 export interface CallContext {
   nickname: string;
+  archetype?: ArchetypeId;
   customer?: string;
   payout?: number;
   earnings?: number;
@@ -45,16 +48,39 @@ export interface Script {
   name?: (c: CallContext) => string;
 }
 
+/** Dede's take on each rider type during the first call. */
+const INTRO_ASIDE: Record<ArchetypeId, string> = {
+  okada: "They tell me say you be okada boy. Ehh, this one no be racing o — the food must reach in one piece.",
+  campus: "Legon student? Ei, my own son dey Commonwealth Hall. Customers go like you — be polite and dem go dash you.",
+  burger: "You just come from abroad? Welcome home! Accra road no be like there o, gutters everywhere.",
+  chopbar: "Your mama na the one with the chop bar for Shiashie? Then all the vendors know you. Ɛyɛ!",
+};
+
 export const SCRIPTS: Script[] = [
   {
     id: "dede-intro", from: "dede", trigger: "shiftStart", kind: "call",
     lines: c => [
       `Hello? Is this ${c.nickname}? Akwaaba to Night Market o! Na me be Auntie Dede, dispatch.`,
+      ...(c.archetype ? [INTRO_ASIDE[c.archetype]] : []),
       "When you ready, go online. Orders go show — accept quick, customers no dey like wait.",
       "Check every bag before you comot from the vendor. Last week one boy forget shito — the customer insult me paa 😂",
       "Ride safe, you hear? Medaase!",
     ],
     missed: () => "Akwaaba! Go online when you ready. Check every bag well before you comot 🙏🏾",
+  },
+  {
+    id: "maame-chopbar", from: "maame", trigger: "shiftStart", kind: "call",
+    when: c => c.archetype === "chopbar",
+    lines: c => [
+      `${c.nickname}! You don reach work? Greet Auntie Akos for me.`,
+      "Make sure you chop before you start. I keep light soup for you.",
+    ],
+    missed: () => "You no pick my call 😤 Chop before you start o!",
+  },
+  {
+    id: "maame-chopbar-again", from: "maame", trigger: "delivered", kind: "text",
+    when: c => c.archetype === "chopbar" && (c.deliveries ?? 0) === 2,
+    lines: () => ["How many you don do? Come home early, your sister want use the bike tomorrow."],
   },
   {
     id: "dede-back", from: "dede", trigger: "shiftReturn", kind: "text",

@@ -164,13 +164,16 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
     }
   }
 
-  private lightSets=new WeakMap<THREE.Group,{grid:THREE.MeshStandardMaterial[];gen:THREE.MeshStandardMaterial[];heads:THREE.MeshStandardMaterial[];lanterns:THREE.MeshStandardMaterial[]}>();
+  private lightSets=new WeakMap<THREE.Group,{grid:THREE.MeshStandardMaterial[];gen:THREE.MeshStandardMaterial[];heads:THREE.MeshStandardMaterial[];lanterns:THREE.MeshStandardMaterial[];streetPools:THREE.Material[];lanternPools:THREE.Material[]}>();
 
   private lightsFor(group:THREE.Group){
     let set=this.lightSets.get(group);
     if(set)return set;
     const found={grid:new Set<THREE.MeshStandardMaterial>(),gen:new Set<THREE.MeshStandardMaterial>(),heads:new Set<THREE.MeshStandardMaterial>(),lanterns:new Set<THREE.MeshStandardMaterial>()};
+    const streetPools:THREE.Material[]=[],lanternPools:THREE.Material[]=[];
     group.traverse(o=>{
+      if(o instanceof THREE.InstancedMesh&&o.name==='streetlight-pool')streetPools.push(o.material as THREE.Material);
+      if(o instanceof THREE.InstancedMesh&&o.name==='lantern-pool')lanternPools.push(o.material as THREE.Material);
       if(!(o instanceof THREE.Mesh)||!(o.material instanceof THREE.MeshStandardMaterial))return;
       const m=o.material,hex=m.color.getHex();
       if(hex===WINDOW_GRID)found.grid.add(m);
@@ -178,7 +181,7 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
       else if(o.name==='accra-streetlight-heads')found.heads.add(m);
       else if(m.name==='lantern')found.lanterns.add(m);
     });
-    set={grid:Array.from(found.grid),gen:Array.from(found.gen),heads:Array.from(found.heads),lanterns:Array.from(found.lanterns)};
+    set={grid:Array.from(found.grid),gen:Array.from(found.gen),heads:Array.from(found.heads),lanterns:Array.from(found.lanterns),streetPools,lanternPools};
     this.lightSets.set(group,set);
     return set;
   }
@@ -194,7 +197,10 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
       // Generator windows stay lit (with a little flicker) when the grid is off.
       for(const m of set.gen)m.emissiveIntensity=glow*(on?0.7:0.75+Math.sin(time*23+chunk.data.cx)*0.08);
       for(const m of set.heads){m.emissiveIntensity=on?0.26+glow*1.6:0.03;}
-      for(const m of set.lanterns)m.emissiveIntensity=glow*(1.6+Math.sin(time*9+chunk.data.cz)*0.2);
+      const flicker=Math.sin(time*9+chunk.data.cz)*0.2;
+      for(const m of set.lanterns)m.emissiveIntensity=glow*(1.6+flicker);
+      for(const m of set.streetPools)m.opacity=on?glow*0.8:0;
+      for(const m of set.lanternPools)m.opacity=glow*(0.5+flicker*0.4);
     }
   }
 

@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { latLonToWorld } from "./world/coordinates";
 import type { ContactId } from "./calls";
 import type { CheckpointState } from "./checkpoint";
+import { ARCHETYPES, type ArchetypeId } from "./archetypes";
 
 export type Phase =
   | "offline"
@@ -100,6 +101,9 @@ export interface GameState {
   raining: boolean;
   /** Rider is inside a dumsor (power cut) area. */
   dumsor: boolean;
+  /** Rider type from the onboarding quiz; null until the player takes it. */
+  archetype: ArchetypeId | null;
+  onboarding: boolean;
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -128,7 +132,7 @@ if (typeof window !== "undefined") {
 
 export const useGame = create<GameState>((set, get) => ({
   navigationTarget: "", atBase: true, delivery: initialDelivery(), mounted: true, interactionDistance: 999, bikeDistance: 0,
-  distanceRidden: 0, onTime: 0, phoneOpen: false, tutorialDone: false, hour: 16,
+  distanceRidden: 0, onTime: 0, phoneOpen: false, tutorialDone: false, hour: 17.5,
   phase: "loading",
   paused: false,
   countdown: 3,
@@ -164,6 +168,8 @@ export const useGame = create<GameState>((set, get) => ({
   radioCaption: "",
   raining: false,
   dumsor: false,
+  archetype: null,
+  onboarding: false,
   sound: true,
   nickname: "Rider",
   foodCondition: 100,
@@ -283,10 +289,23 @@ if (typeof window !== "undefined") {
 }
 
 const progressKeys = ['earnings', 'xp', 'deliveries', 'rating', 'ratingsCount', 'distanceRidden', 'onTime', 'tutorialDone'] as const;
+/** Save the player's name and quiz result; the head start is paid once. */
+export function chooseIdentity(nickname: string, archetype: ArchetypeId) {
+  const s = useGame.getState();
+  const first = s.archetype === null;
+  s.set({
+    nickname: nickname.trim().slice(0, 20) || "Rider",
+    archetype,
+    earnings: first ? Math.round((s.earnings + ARCHETYPES[archetype].perks.startCash) * 100) / 100 : s.earnings,
+  });
+  try { localStorage.setItem("nm_name", useGame.getState().nickname); } catch { /* ignore */ }
+  persistProgress();
+}
+
 export function persistProgress() {
   try {
     const s = useGame.getState();
-    const data = Object.fromEntries(progressKeys.map(k => [k, s[k]]));
+    const data = { ...Object.fromEntries(progressKeys.map(k => [k, s[k]])), archetype: s.archetype };
     localStorage.setItem('nm_progress_v1', JSON.stringify(data));
   } catch { /* Storage may be unavailable in private browsing. */ }
 }
@@ -298,6 +317,7 @@ export function restoreProgress() {
       if (key === 'tutorialDone' && typeof raw[key] === 'boolean') data[key] = raw[key];
       else if (typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0) data[key] = raw[key];
     }
+    if (typeof raw.archetype === 'string' && raw.archetype in ARCHETYPES) (data as Record<string, unknown>).archetype = raw.archetype;
     useGame.getState().set(data);
   } catch { /* Ignore invalid saves. */ }
 }

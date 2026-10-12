@@ -13,6 +13,8 @@ export interface SettlementInput {
   itemFixed: boolean;
   /** Change given minus change owed (cash orders). */
   changeError: number;
+  /** Rider archetype bonus on tips (default 1). */
+  tipMultiplier?: number;
 }
 
 export interface SettlementLine {
@@ -36,7 +38,7 @@ export function settleDelivery(i: SettlementInput): Settlement {
   const shortChanged = i.changeError < -0.001;
   const overpaid = i.changeError > 0.001;
   // Customers tip for warm, intact, complete food delivered on time.
-  let tip = Math.round(i.fare * 0.4 * quality * quality * (i.onTime ? 1 : 0.3) * 2) / 2;
+  let tip = Math.round(i.fare * 0.4 * quality * quality * (i.onTime ? 1 : 0.3) * (i.tipMultiplier ?? 1) * 2) / 2;
   if (i.missingAccepted || shortChanged) tip = 0;
 
   const lines: SettlementLine[] = [{ label: "Delivery fare", amount: round2(i.fare) }];

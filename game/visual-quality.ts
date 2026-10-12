@@ -107,7 +107,7 @@ export function applyVisualQuality(engine: Engine) {
   const originalApplySky = engine.applySky.bind(engine);
   engine.applySky = (night: number) => {
     originalApplySky(night);
-    renderer.toneMappingExposure = (mobile ? 1.04 : 1.08) + night * 0.16;
+    renderer.toneMappingExposure = (mobile ? 1.04 : 1.08) + night * 0.06;
     if (scene.fog instanceof THREE.FogExp2) {
       const dayFog = mobile ? 0.0032 : 0.0026;
       scene.fog.density = dayFog + night * 0.0008;

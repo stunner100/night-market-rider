@@ -75,8 +75,9 @@ const KEYS: [number, number, number, number][] = [
   [0.0, 0x2f7fd0, 0xbfe0f2, 0xfff1d6],
   [0.35, 0x3b6fb8, 0xf6c793, 0xffc884],
   [0.6, 0x3a3f7a, 0xff8f5a, 0xff7a3d],
-  [0.8, 0x141a3d, 0x5a3a5e, 0xc45a3a],
-  [1.0, 0x05081a, 0x161d3a, 0x6a4a6a],
+  [0.8, 0x10153a, 0x6a3b3a, 0xc45a3a],
+  // Accra after dark: deep navy overhead, sodium-orange city glow on the horizon.
+  [1.0, 0x04061a, 0x3d2620, 0x6a4a6a],
 ];
 const _a = new THREE.Color(), _b = new THREE.Color();
 

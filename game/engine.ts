@@ -26,6 +26,7 @@ import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { RADIO_REACTIONS, STATIONS, radioCaption } from "./radio";
+import { perksFor } from "./archetypes";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -52,6 +53,8 @@ const CARRY_STAGES = ['returnBike', 'rideCustomer', 'contact', 'calling', 'findC
 const _skyResult = new THREE.Color();
 const _white = new THREE.Color(0xffffff);
 const _rainGrey = new THREE.Color(0x6d7680);
+/** The Night Market shift starts at golden hour; night falls about two minutes in. */
+const SHIFT_START_HOUR = 17.5;
 // Pre-allocated Vector3 for exhaust position
 const _exhaustPos = new THREE.Vector3();
 // Pre-allocated Vector3 for menu camera target
@@ -146,7 +149,7 @@ export class Engine {
     if (!this.carryingFood()) return;
     const s = useGame.getState();
     const before = s.foodCondition;
-    const after = Math.max(0, before - amount);
+    const after = Math.max(0, before - amount * perksFor(s.archetype).spill);
     if (after === before) return;
     s.set({ foodCondition: after });
     const now = performance.now();
@@ -186,7 +189,7 @@ export class Engine {
     const distance = (g: THREE.Group | null) => g ? Math.hypot(this.px - g.position.x, this.pz - g.position.z) : Infinity;
     return { mounted: s.mounted, speed: this.speed, vendorDistance: distance(this.vendorNPC), customerDistance: distance(this.customerNPC),
       destinationDistance: s.order ? Math.hypot(this.px - s.order.dropX, this.pz - s.order.dropZ) : Infinity,
-      bikeDistance: Math.hypot(this.px - this.parked.x, this.pz - this.parked.z), delay: prepSeconds(s.orderIndex), customer: s.order?.customer ?? 'Customer',
+      bikeDistance: Math.hypot(this.px - this.parked.x, this.pz - this.parked.z), delay: prepSeconds(s.orderIndex) * perksFor(s.archetype).prep, customer: s.order?.customer ?? 'Customer',
       customerNote: customerDetails(s.order?.id ?? 1).note, customerReply: customerDetails(s.order?.id ?? 1).reply,
       missesFirstCall: customerDetails(s.order?.id ?? 1).missesFirstCall,
       ...this.orderContext() };
@@ -392,7 +395,7 @@ export class Engine {
   /** Raise a story trigger; texts land at once, calls queue until the rider is free. */
   raise(trigger: Trigger, extra: Partial<CallContext> = {}) {
     const s = useGame.getState();
-    const texts = this.calls.notify(trigger, { nickname: s.nickname, deliveries: s.deliveries, earnings: s.earnings, ...extra });
+    const texts = this.calls.notify(trigger, { nickname: s.nickname, deliveries: s.deliveries, earnings: s.earnings, archetype: s.archetype ?? undefined, ...extra });
     for (const t of texts) for (const line of t.lines) this.receiveText(t, line);
   }
 
@@ -418,7 +421,7 @@ export class Engine {
     s.set({ incomingCall: { from: next.script.from, name: next.name, lines: next.lines, step: 0, answered: false, missed: next.missed, ringStarted: this.shiftSeconds } });
     this.ringAt = this.shiftSeconds;
     this.audio.ring();
-    navigator.vibrate?.([200, 100, 200]);
+    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.([200, 100, 200]);
   }
 
   answerCall() {
@@ -624,6 +627,8 @@ export class Engine {
   };
 
   private _onKeyDown = (e: KeyboardEvent) => {
+    // Typing a name in a form must not ride the bike.
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
     if (e.code === "Escape" || e.code === "KeyP") {
       e.preventDefault();
@@ -783,7 +788,7 @@ export class Engine {
     this.world.setMarkers({ x: s.order.pickupX, z: s.order.pickupZ }, null, "toPickup");
     s.pushToast(DELIVERY.accept(s.order.vendor));
     // From the second order, some routes pass a police checkpoint.
-    if (s.order.id >= 2 && Math.random() < 0.45) this.checkpointFor = s.order.id;
+    if (s.order.id >= 2 && Math.random() < perksFor(s.archetype).checkpointChance) this.checkpointFor = s.order.id;
   }
 
   private _pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -1025,7 +1030,7 @@ export class Engine {
       fare: o.reward, streakMultiplier: mult, condition, onTime: s.timeLeft > 0, timeLeft: s.timeLeft,
       collisions: this.orderCollisions, missingAccepted: d.missingAccepted, itemFixed: d.itemFixed,
       missingItem: details.missingIndex >= 0 ? details.items[details.missingIndex].name : undefined,
-      changeError: d.changeError,
+      changeError: d.changeError, tipMultiplier: perksFor(s.archetype).tips,
     });
     const { tip, payout: reward } = settled;
     const xpGain = Math.round((o.xp + timeBonus + (noCrash ? 200 : 0)) * mult) + settled.xpBonus;
@@ -1121,7 +1126,7 @@ export class Engine {
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
-    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity);
+    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity) * perksFor(s.archetype).speed;
     const boostMax = onFoot ? 5.5 : 37;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
@@ -1339,7 +1344,7 @@ export class Engine {
     if (o && !['offer', 'completed'].includes(current.delivery.stage)) current.set({ timeLeft: Math.max(0, o.timeTotal - current.delivery.elapsed) });
     if (s.mounted) s.set({ distanceRidden: s.distanceRidden + Math.hypot(this.px - previousX, this.pz - previousZ) });
     this.shiftSeconds += dt;
-    const hour = (16 + this.shiftSeconds / 60) % 24;
+    const hour = (SHIFT_START_HOUR + this.shiftSeconds / 60) % 24;
     this.nightF = hour >= 19 || hour < 5 ? .95 : hour >= 17 ? (hour - 17) / 2 * .95 : hour < 7 ? (7 - hour) / 2 * .95 : .06;
 
     // Trotro mates lean out and shout the destination when they stop near you.
@@ -1481,7 +1486,7 @@ export class Engine {
     this.rig.body.position.y += (sit - this.rig.body.position.y) * sitK;
     this.rig.body.rotation.x += ((this.boostOn ? 0.07 : 0) - this.rig.body.rotation.x) * sitK;
     (this.rig.brakeLight.material as THREE.MeshBasicMaterial).color.setHex(this.input.down ? 0xff2222 : 0x550000);
-    this.rig.headlight.intensity = this.nightF > 0.35 ? 60 : 0;
+    this.rig.headlight.intensity = this.nightF > 0.35 ? 90 : 0;
     const r = this.rig.rider;
     if (r) {
       const phase = useGame.getState().phase;
@@ -1570,11 +1575,12 @@ export class Engine {
     }
     this.scene.background = _skyResult;
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
-    this.world.sun.intensity = 2.1 - night * 1.85;
-    this.world.hemi.intensity = 0.75 - night * 0.5;
-    this.world.ambient.intensity = 0.45 - night * 0.3;
+    this.world.sun.intensity = 2.1 - night * 2.0;
+    // Real night: the street is lit by lamps, windows and headlights, not the sky.
+    this.world.hemi.intensity = 0.75 - night * 0.6;
+    this.world.ambient.intensity = 0.45 - night * 0.37;
     // Image-based reflections otherwise keep the city lit like noon after dark.
-    this.scene.environmentIntensity = 1 - night * 0.75;
+    this.scene.environmentIntensity = 1 - night * 0.86;
     this.world.hemi.color.copy(_skyResult).lerp(_white, 0.45);
   }
 
