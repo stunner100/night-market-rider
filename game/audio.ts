@@ -74,6 +74,9 @@ export class GameAudio {
   coin() { this.blip(1567, 0.09, "square", 0.18); }
   crash() { this.noise(0.35, 0.4); this.blip(90, 0.3, "sawtooth", 0.35); }
   horn() { this.blip(370, 0.25, "square", 0.25); }
+  /** Feature-phone style double trill. */
+  ring() { for (let i = 0; i < 2; i++) { this.blip(1320, 0.09, "square", 0.12, i * 0.28); this.blip(1660, 0.09, "square", 0.1, i * 0.28 + 0.1); } }
+  textAlert() { this.blip(1046, 0.07, "sine", 0.2); this.blip(1568, 0.1, "sine", 0.2, 0.08); }
   /** Another driver's two-tone horn, quieter with distance. */
   trafficHorn(distance: number) {
     const vol = 0.11 * Math.max(0.15, 1 - distance / 70);

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useGame } from "@/game/store";
 import { customerDetails } from "@/game/delivery/customer";
+import { CONTACTS } from "@/game/calls";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
 const tabs = [
@@ -21,6 +22,10 @@ export default function RiderPhone() {
   useEffect(() => {
     if (s.delivery.stage === "calling") setTab("Calls");
   }, [s.delivery.stage]);
+  const reading = s.phoneOpen && tab === "Messages" && s.unread > 0;
+  useEffect(() => {
+    if (reading) useGame.getState().set({ unread: 0 });
+  }, [reading]);
   if (!s.phoneOpen) return null;
   const online = s.delivery.stage !== "offline";
   const canCall =
@@ -55,13 +60,14 @@ export default function RiderPhone() {
         {tabs.map((t) => (
           <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
             {t}
+            {t === "Messages" && s.unread > 0 && <span className="unread-badge">{s.unread}</span>}
           </button>
         ))}
       </nav>
       <div className="phone-content">
         <h2>
           {s.delivery.stage === "calling"
-            ? `Calling ${s.order?.customer}…`
+            ? `Dey call ${s.order?.customer}…`
             : tab}
         </h2>
         {s.delivery.stage === "calling" ? (
@@ -69,19 +75,19 @@ export default function RiderPhone() {
             <div className="call-avatar">{s.order?.customer[0]}</div>
             <p>
               00:0{Math.max(0, 3 - Math.ceil(s.delivery.remaining))} ·
-              Connecting
+              E dey ring
             </p>
           </>
         ) : (
           <>
             {(tab === "Home" || tab === "Orders") && (
               <>
-                <p className="eyebrow">CURRENT DELIVERY</p>
+                <p className="eyebrow">THE ORDER WEY DEY</p>
                 <h3>{deliveryObjective(s.delivery.stage, s.mounted)}</h3>
                 <p>
                   {s.order
                     ? `${s.order.vendor} → ${s.order.customer} · ${s.order.dropoff}`
-                    : "No active order. Take a ride or go online."}
+                    : "No order now. Roam small or go online."}
                 </p>
                 <p>{s.order?.food}</p>
                 {s.delivery.message && !awaitingReply && <p className="phone-message">{s.delivery.message}</p>}
@@ -93,82 +99,109 @@ export default function RiderPhone() {
                 </button>
                 {s.order && (
                   <p className="muted">
-                    Going offline cancels the current delivery.
+                    If you go offline, the order go cancel o.
                   </p>
                 )}
               </>
             )}
             {tab === "Map" && (
               <>
-                <p>{s.turnHint || "Explore the Legon corridor"}</p>
+                <p>{s.turnHint || "Roam the Legon side"}</p>
                 <button
                   className="btn btn-ghost"
                   disabled={!!s.order}
                   onClick={() => engineRef.current?.navigateTo("base")}
                 >
-                  ROUTE TO RIDER BASE
+                  SHOW ME THE BASE
                 </button>
                 <button
                   className="btn btn-ghost"
                   disabled={!!s.order}
                   onClick={() => engineRef.current?.navigateTo("fuel")}
                 >
-                  FIND FUEL STATION
+                  WHERE FUEL DEY?
                 </button>
-                <h3>{Math.round(s.distM)} m to destination</h3>
+                <h3>{Math.round(s.distM)} m more</h3>
                 <p>
                   Yellow: vendor · Green: customer
                   <br />
                   Orange: fuel · Blue: landmarks
                 </p>
                 <p>
-                  Follow the road chevrons and the live minimap. Miss a turn?
-                  Your route recalculates automatically.
+                  Follow the arrows for the road and the minimap. You miss
+                  turn? No wahala, the route go change itself.
                 </p>
                 <button
                   className="btn btn-primary"
                   onClick={() => s.set({ phoneOpen: false })}
                 >
-                  RETURN TO GPS
+                  BACK TO GPS
                 </button>
               </>
             )}
-            {(tab === "Messages" || tab === "Calls" || ((tab === "Home" || tab === "Orders") && awaitingReply)) && (
+            {s.order && (tab === "Messages" || tab === "Calls" || ((tab === "Home" || tab === "Orders") && awaitingReply)) && (
               <>
                 <p className="phone-message">
                   {s.order
                     ? s.delivery.message ||
                       `${s.order.customer}: ${customerDetails(s.order.id).note}`
-                    : "Your customer conversations will appear here."}
+                    : "Customer chats go show here."}
                 </p>
                 <button
                   className="btn btn-primary"
                   disabled={!canCall}
                   onClick={() => engineRef.current?.callCustomer()}
                 >
-                  {awaitingReply ? "RETRY CALL" : "CALL CUSTOMER"}
+                  {awaitingReply ? "CALL AGAIN" : "CALL CUSTOMER"}
                 </button>
                 <p className="muted">
                   {awaitingReply && s.delivery.remaining > 0
-                    ? `Retry in ${Math.ceil(s.delivery.remaining)} s, or send an arrival message.`
-                    : "Stop within 85 m of the destination to call."}
+                    ? `Call again in ${Math.ceil(s.delivery.remaining)} s, or text am say you don reach.`
+                    : "Stop within 85 m of the place before you call."}
                 </p>
                 <button
                   className="btn btn-ghost"
                   disabled={!canMessage}
                   onClick={() => engineRef.current?.messageCustomer()}
                 >
-                  {awaitingReply ? "MESSAGE: I’VE ARRIVED" : "MESSAGE: ON MY WAY"}
+                  {awaitingReply ? "TEXT: “I DON REACH”" : "TEXT: “I DEY COME”"}
                 </button>
                 {s.delivery.messageSent && <p role="status">Sent ✓</p>}
-                {s.order && <p className="muted">Delivery note: {customerDetails(s.order.id).note}</p>}
+                {s.order && <p className="muted">Customer note: {customerDetails(s.order.id).note}</p>}
               </>
+            )}
+            {tab === "Messages" && (
+              <ul className="inbox" aria-label="Messages">
+                {s.inbox.map((m) => (
+                  <li key={m.id}>
+                    <span className="inbox-face" aria-hidden="true">{CONTACTS[m.from].avatar}</span>
+                    <div>
+                      <b>{m.name}</b> <time>{m.time}</time>
+                      <p>{m.text}</p>
+                    </div>
+                  </li>
+                ))}
+                {!s.inbox.length && <li className="muted">No message yet.</li>}
+              </ul>
+            )}
+            {tab === "Calls" && s.callLog.length > 0 && (
+              <ul className="inbox" aria-label="Recent calls">
+                {s.callLog.map((c) => (
+                  <li key={c.id} className={c.missed ? "is-missed" : ""}>
+                    <span className="inbox-face" aria-hidden="true">{CONTACTS[c.from].avatar}</span>
+                    <div>
+                      <b>{c.name}</b> <time>{c.time}</time>
+                      <p>{c.missed ? "Missed call ↙" : "Answered ↘"}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
             {tab === "Earnings" && (
               <>
-                <p className="eyebrow">TOTAL EARNINGS · SAVED ON THIS DEVICE</p>
+                <p className="eyebrow">YOUR CHOP MONEY · SAVED ON THIS PHONE</p>
                 <div className="phone-money">GH₵{s.earnings.toFixed(2)}</div>
-                <p>{s.deliveries} completed deliveries</p>
+                <p>{s.deliveries} deliveries done</p>
                 <p>
                   Last delivery: GH₵
                   {s.lastDelivery?.reward.toFixed(2) ?? "0.00"}
@@ -183,7 +216,7 @@ export default function RiderPhone() {
                   Level {1 + Math.floor(s.xp / 2000)} · {s.xp} XP
                 </p>
                 <p>{(s.distanceRidden / 1000).toFixed(1)} km ridden</p>
-                <p>Legon / Okponglo / Shiashie corridor</p>
+                <p>Legon · Okponglo · Shiashie side</p>
               </>
             )}
             {tab === "Performance" && (
@@ -218,7 +251,7 @@ export default function RiderPhone() {
         disabled={s.fuel > 0}
         onClick={() => engineRef.current?.roadsideAssist()}
       >
-        OUT OF FUEL? CALL ASSISTANCE
+        FUEL FINISH? CALL THE BASE
       </button>
       <footer>Night Market Rider · Simulated rider app</footer>
     </section>

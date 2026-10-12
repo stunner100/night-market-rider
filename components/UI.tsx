@@ -4,6 +4,8 @@ import { useGame, saveBoard } from "@/game/store";
 import { formatMetres } from "@/game/world/distance";
 import type { MinimapFrame } from "@/game/world/minimap-data";
 import RiderPhone from "./RiderPhone";
+import PhoneCall from "./PhoneCall";
+import { LOADING_LINES } from "@/game/voice";
 import { CashPayment, InteractionPrompt, PickupTicket } from "./DeliveryPanels";
 import { customerDetails } from "@/game/delivery/customer";
 import { deliveryObjective } from "@/game/delivery/machine";
@@ -12,9 +14,9 @@ import { engineRef } from "./GameClient";
 const MANEUVER_LABEL = {
   left: "Turn left",
   right: "Turn right",
-  straight: "Continue straight",
-  uturn: "Make a U-turn",
-  arrive: "Arriving",
+  straight: "Go straight",
+  uturn: "Turn back",
+  arrive: "You don reach",
 } as const;
 
 /** Turn-by-turn glyphs drawn on a 48-unit grid, pointing "up" = forward. */
@@ -33,7 +35,7 @@ function ManeuverIcon({ kind }: { kind: keyof typeof MANEUVER_LABEL }) {
   );
 }
 
-const COUNTER_STAGES = ["preparing", "collect", "checkBag", "fixingBag", "payment", "handoff", "completed"];
+const COUNTER_STAGES = ["offer", "preparing", "collect", "checkBag", "fixingBag", "payment", "handoff", "completed"];
 
 function NavBanner() {
   const s = useGame();
@@ -56,11 +58,11 @@ function NavBanner() {
       </div>
       <div className="nav-text">
         <strong>
-          {kind === "uturn" ? "Turn around" : soon || kind === "arrive" ? MANEUVER_LABEL[kind] : formatMetres(s.navTurnIn)}
+          {kind === "uturn" ? "Chale, turn back" : soon || kind === "arrive" ? MANEUVER_LABEL[kind] : formatMetres(s.navTurnIn)}
         </strong>
         <span>
           {kind === "uturn"
-            ? "You're heading away from the route"
+            ? "You dey go wrong side o"
             : soon || kind === "arrive"
               ? s.roadName || "Follow the route"
               : `then ${MANEUVER_LABEL[kind].toLowerCase()}${s.roadName ? ` · ${s.roadName}` : ""}`}
@@ -399,10 +401,10 @@ export default function UI({
             }}
           />
           <h2 style={{ margin: "14px 0 6px" }}>
-            Preparing your Night Market shift…
+            Your shift dey load…
           </h2>
           <p style={{ opacity: 0.7, fontSize: 13 }}>
-            Loading Accra · rider · traffic
+            {LOADING_LINES[Math.floor(progress / 17) % LOADING_LINES.length]}
           </p>
           <div className="loading-bar">
             <div style={{ width: `${progress}%` }} />
@@ -420,11 +422,11 @@ export default function UI({
     stage === "vendor"
       ? "CONFIRM ORDER"
       : stage === "collect"
-        ? "COLLECT ORDER"
+        ? "TAKE THE FOOD"
         : stage === "findCustomer"
-          ? "HAND OVER ORDER"
+          ? "GIVE AM THE FOOD"
           : stage === "contact"
-            ? s.delivery.callAttempts > 0 ? "RETRY CALL" : "CALL CUSTOMER"
+            ? s.delivery.callAttempts > 0 ? "CALL AGAIN" : "CALL CUSTOMER"
             : null;
   const canInteract =
     stage === "contact"
@@ -435,15 +437,16 @@ export default function UI({
       {s.phase === "menu" && (
         <div className="welcome-screen">
           <img src="/brand/night-market-logo.png" alt="Night Market" />
-          <p className="eyebrow">ACCRA IS YOUR NEXT ADVENTURE</p>
+          <p className="welcome-ticker">{LOADING_LINES[0]}</p>
+          <p className="eyebrow">AKWAABA · LEGON · OKPONGLO · SHIASHIE</p>
           <h1>RIDER</h1>
-          <p>Your city. Your bike. Your shift.</p>
+          <p>Chale, Accra dey wait. Your moto, your hustle, your shift.</p>
           <button className="btn btn-primary" onClick={() => eng?.startRun()}>
-            EXPLORE ACCRA
+            ENTER ACCRA
           </button>
           <div className="welcome-links">
-            <button onClick={() => setShowHelp(true)}>Riding guide</button>
-            <button onClick={() => setShowBoard(true)}>Leaderboard</button>
+            <button onClick={() => setShowHelp(true)}>How e dey work</button>
+            <button onClick={() => setShowBoard(true)}>Top riders</button>
             <button
               onClick={() => {
                 s.set({ sound: !s.sound });
@@ -494,7 +497,7 @@ export default function UI({
             {(s.navigationTarget ||
               ["ridePickup", "rideCustomer"].includes(stage)) && (
               <div className="route-instruction">
-                <b>{s.turnHint || "Follow the yellow route"}</b>
+                <b>{s.turnHint || "Follow the yellow road"}</b>
                 <span>
                   {formatMetres(s.distM)} · ~
                   {Math.max(1, Math.ceil(s.distM / 400))} min
@@ -513,12 +516,12 @@ export default function UI({
             )}
             {stage === "returnBike" && (
               <p>
-                {Math.round(s.bikeDistance)} m to your parked bike · E to mount
+                {Math.round(s.bikeDistance)} m to your bike · E to climb
               </p>
             )}
             {stage === "preparing" && (
               <p>
-                “One minute please.” Ready in {Math.ceil(s.delivery.remaining)}{" "}
+                “Small time please.” E go ready in {Math.ceil(s.delivery.remaining)}{" "}
                 s
               </p>
             )}
@@ -531,9 +534,9 @@ export default function UI({
             {stage === "contact" && s.delivery.callAttempts > 0 && (
               <>
                 <p>{s.delivery.message}</p>
-                {s.delivery.remaining > 0 && <p>Retry in {Math.ceil(s.delivery.remaining)} s.</p>}
+                {s.delivery.remaining > 0 && <p>Call again in {Math.ceil(s.delivery.remaining)} s.</p>}
                 <button className="btn btn-ghost" disabled={s.speedKmh >= 3.6 || s.delivery.messageSent}
-                  onClick={() => eng?.messageCustomer()}>MESSAGE: I’VE ARRIVED</button>
+                  onClick={() => eng?.messageCustomer()}>TEXT: “I DON REACH”</button>
               </>
             )}
             {interaction && (
@@ -548,10 +551,10 @@ export default function UI({
             {interaction && !canInteract && (
               <p className="muted">
                 {s.mounted && stage !== "contact"
-                  ? "Stop, press E to get off, then approach on foot."
+                  ? "Stop, press E to get down, then waka go."
                   : stage === "contact"
-                    ? s.delivery.remaining > 0 ? "Wait for the retry timer, or send a message." : "Brake to a stop to call."
-                    : "Walk within 3 m of the person."}
+                    ? s.delivery.remaining > 0 ? "Wait small before you call again, or text am." : "Stop the bike before you call."
+                    : "Waka close to the person (3 m)."}
               </p>
             )}
             {s.atBase && stage === "offline" && (
@@ -565,20 +568,21 @@ export default function UI({
             )}
             {stage === "offline" && !s.tutorialDone && (
               <p className="muted">
-                First shift? Go online → accept → park and collect → call → hand
-                over. We’ll guide you one step at a time.
+                First shift? Go online → accept → park and collect → call → give
+                the food. We go show you step by step.
               </p>
             )}
           </section>
           <div className="ride-actions">
             <button onClick={() => s.set({ phoneOpen: !s.phoneOpen })}>
               PHONE <kbd>N</kbd>
+              {s.unread > 0 && <span className="unread-badge" aria-label={`${s.unread} unread messages`}>{s.unread}</span>}
             </button>
             <button
               disabled={s.mounted ? s.speedKmh > 3 : s.bikeDistance > 3}
               onClick={() => eng?.toggleMount()}
             >
-              {s.mounted ? "GET OFF BIKE" : "MOUNT BIKE"} <kbd>E</kbd>
+              {s.mounted ? "GET DOWN" : "CLIMB BIKE"} <kbd>E</kbd>
             </button>
           </div>
           <div className="ride-telemetry">
@@ -628,15 +632,15 @@ export default function UI({
             <section className="order-offer" aria-label="New delivery offer">
               <div className="offer-kicker">
                 NIGHT MARKET{" "}
-                <span>{Math.ceil(s.delivery.remaining)}s TO ACCEPT</span>
+                <span>{Math.ceil(s.delivery.remaining)}s · ACCEPT QUICK</span>
               </div>
-              <p className="eyebrow">NEW DELIVERY</p>
+              <p className="eyebrow">NEW ORDER DEY!</p>
               <h2>{s.order.vendor}</h2>
               <p>{s.order.food}</p>
               <div className="offer-route">
-                <span>01 · PICK UP</span>
+                <span>01 · TAKE FROM</span>
                 <b>{s.order.vendor} · Legon corridor</b>
-                <span>02 · DELIVER TO</span>
+                <span>02 · CARRY GO</span>
                 <b>
                   {s.order.customer} · {s.order.dropoff}
                 </b>
@@ -658,13 +662,13 @@ export default function UI({
                   className="btn btn-ghost"
                   onClick={() => eng?.declineOrder()}
                 >
-                  DECLINE
+                  PASS
                 </button>
                 <button
                   className="btn btn-primary"
                   onClick={() => eng?.acceptOrder()}
                 >
-                  ACCEPT ORDER
+                  ACCEPT AM
                 </button>
               </div>
               <div
@@ -678,7 +682,7 @@ export default function UI({
           <InteractionPrompt />
           {stage === "completed" && s.lastDelivery && (
             <div className="completion">
-              <p className="eyebrow">DELIVERY COMPLETE · MEDAASE!</p>
+              <p className="eyebrow">DELIVERY DONE · MEDAASE!</p>
               <h2>+GH₵{s.lastDelivery.reward.toFixed(2)}</h2>
               <div className="completion-stars" aria-label={`Customer rating ${s.lastDelivery.rating.toFixed(1)} of 5`}>
                 {[1, 2, 3, 4, 5].map((n) => (
@@ -695,27 +699,28 @@ export default function UI({
                 ))}
               </dl>
               <p>
-                +{s.lastDelivery.xp} XP · {s.timeLeft > 0 ? "On time" : "Delivered late"} · food{" "}
+                +{s.lastDelivery.xp} XP · {s.timeLeft > 0 ? "On time" : "Late small"} · food{" "}
                 {s.lastDelivery.condition}% intact · {fmtTime(s.delivery.elapsed)}
               </p>
             </div>
           )}
           <RiderPhone />
+          <PhoneCall />
         </>
       )}
       {s.paused && (
         <div className="modal-shade">
           <section className="dialog">
-            <p className="eyebrow">TAKE A BREATHER</p>
-            <h2>Shift paused</h2>
+            <p className="eyebrow">REST SMALL</p>
+            <h2>Shift dey pause</h2>
             <button
               className="btn btn-primary"
               onClick={() => eng?.resumeGame()}
             >
-              RESUME
+              CONTINUE
             </button>
             <button className="btn btn-ghost" onClick={() => eng?.quitToMenu()}>
-              RETURN TO MENU
+              GO HOUSE
             </button>
           </section>
         </div>
@@ -724,7 +729,7 @@ export default function UI({
         <div className="modal-shade">
           <section className="dialog">
             <h2>
-              {showBoard ? "Accra top riders" : "Welcome, Night Market rider"}
+              {showBoard ? "Accra top riders" : "Akwaaba, Night Market rider"}
             </h2>
             {showBoard ? (
               <>
@@ -735,24 +740,24 @@ export default function UI({
                     </p>
                   ))
                 ) : (
-                  <p>No recorded shifts yet.</p>
+                  <p>Nobody don ride yet. Be the first!</p>
                 )}
               </>
             ) : (
               <>
                 <p>
-                  Roam freely or go online for work. Accept an offer and follow
-                  GPS to your vendor.
+                  Roam Accra free, or go online for work. Accept an order and
+                  follow the GPS go the vendor.
                 </p>
                 <p>
-                  Brake, press E to park, walk to the vendor and press F to
-                  confirm. Collect the food, return to your bike, then follow
-                  GPS to the customer.
+                  Brake, press E to park, waka go the vendor and press F to
+                  confirm. Check the bag well, go back to your bike, then follow
+                  GPS go the customer.
                 </p>
                 <p>
-                  Call near the destination. Find the customer, get off and
-                  press F to hand over. Your earnings and progress save on this
-                  device.
+                  Call when you near. Find the customer, get down and press F to
+                  give the food. Your phone go ring too — Auntie Dede, Kofi
+                  Mechanic, even your Maame. Enter to answer.
                 </p>
                 <p>
                   W / S to move · A / D to steer · E mount · F interact · N
@@ -767,7 +772,7 @@ export default function UI({
                 setShowBoard(false);
               }}
             >
-              CLOSE
+              OK, I GET AM
             </button>
           </section>
         </div>

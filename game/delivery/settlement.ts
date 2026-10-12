@@ -41,9 +41,9 @@ export function settleDelivery(i: SettlementInput): Settlement {
 
   const lines: SettlementLine[] = [{ label: "Delivery fare", amount: round2(i.fare) }];
   if (i.streakMultiplier > 1) lines.push({ label: `Streak ×${i.streakMultiplier}`, amount: round2(i.fare * (i.streakMultiplier - 1)) });
-  if (tip > 0) lines.push({ label: "Customer tip", amount: tip });
+  if (tip > 0) lines.push({ label: "Customer tip · dash", amount: tip });
   // Extra change handed over comes out of the rider's pocket.
-  if (overpaid) lines.push({ label: "Extra change given", amount: -round2(i.changeError) });
+  if (overpaid) lines.push({ label: "Extra change you give", amount: -round2(i.changeError) });
   const payout = round2(Math.max(0, lines.reduce((sum, line) => sum + line.amount, 0)));
 
   let rating = 5 - i.collisions * 0.3 - (1 - quality) * 1.6 - (i.timeLeft < 10 ? 0.3 : 0);
@@ -53,13 +53,13 @@ export function settleDelivery(i: SettlementInput): Settlement {
 
   const xpBonus = i.itemFixed ? 150 : 0;
 
-  let comment = "Thank you, rider!";
-  if (i.missingAccepted) comment = `${i.missingItem ?? "Part of my order"} was missing from my bag 😕`;
-  else if (shortChanged) comment = "My change was short. Please count well next time.";
-  else if (i.condition < 60) comment = "The food was all shaken up.";
-  else if (!i.onTime) comment = "Came a bit late, but thanks.";
-  else if (i.condition >= 95 && i.collisions === 0) comment = "Still hot! Medaase paa 🔥";
-  else if (i.itemFixed) comment = "Everything was there. Thanks for checking!";
+  let comment = "Medaase, rider!";
+  if (i.missingAccepted) comment = `${i.missingItem ?? "Part of my order"} no dey inside my bag 😕`;
+  else if (shortChanged) comment = "My change no complete o. Count am well next time.";
+  else if (i.condition < 60) comment = "Chale, the food all scatter 😩";
+  else if (!i.onTime) comment = "You come small late, but thanks.";
+  else if (i.condition >= 95 && i.collisions === 0) comment = "E still dey hot! Medaase paa 🔥";
+  else if (i.itemFixed) comment = "Everything complete. Thanks for checking am!";
 
   return { payout, tip, rating, xpBonus, comment, lines };
 }

@@ -223,7 +223,7 @@ test("settlement rewards care and penalises missing items and wrong change", () 
   const missing = settleDelivery({ ...base, missingAccepted: true, missingItem: "Shito sachet" });
   assert.equal(missing.tip, 0);
   assert.equal(missing.rating, 3.8);
-  assert.match(missing.comment, /Shito sachet was missing/);
+  assert.match(missing.comment, /Shito sachet no dey inside/);
 
   const overpaid = settleDelivery({ ...base, changeError: 5 });
   assert.equal(overpaid.payout, 9);

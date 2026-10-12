@@ -1242,3 +1242,150 @@ kbd {
     transition: none !important;
   }
 }
+
+/* ---- Accra voice: welcome ticker, incoming calls, inbox ---- */
+.welcome-ticker {
+  margin: 0 0 10px;
+  color: #8ce99a;
+  font-size: 14px !important;
+  font-weight: 700;
+}
+.ride-actions button {
+  position: relative;
+}
+.unread-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e03131;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+.call-card {
+  box-sizing: border-box;
+  position: absolute;
+  right: 24px;
+  top: 150px;
+  width: 300px;
+  padding: 16px;
+  border: 1px solid #ffffff22;
+  border-radius: 20px;
+  background: #101d19f2;
+  box-shadow: 0 16px 50px #0009;
+  color: #fff;
+  pointer-events: auto;
+  z-index: 6;
+  animation: offer-in 0.2s ease;
+}
+.call-card.is-ringing .call-face {
+  animation: call-pulse 1.1s ease-in-out infinite;
+}
+.call-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.call-who b {
+  display: block;
+  font-size: 18px;
+}
+.call-who small {
+  color: #aab4ad;
+}
+.call-face {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #1f3029;
+  font-size: 26px;
+}
+.call-line {
+  margin: 14px 0 4px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.call-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.call-actions .btn {
+  width: 100%;
+  margin: 0;
+  padding: 11px 8px;
+  font-size: 14px;
+}
+.call-answer {
+  background: #2f9e44;
+  color: #fff;
+}
+.call-later {
+  background: #c92a2a;
+  color: #fff;
+}
+.call-card kbd {
+  color: inherit;
+  opacity: 0.75;
+  font-size: 10px;
+}
+@keyframes call-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #51cf6666; }
+  50% { box-shadow: 0 0 0 10px #51cf6600; }
+}
+.inbox {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.inbox li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid #ffffff14;
+}
+.inbox-face {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #1f3029;
+  font-size: 18px;
+}
+.inbox b {
+  font-size: 13px;
+}
+.inbox time {
+  color: #8a958e;
+  font-size: 11px;
+}
+.inbox p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.inbox .is-missed p {
+  color: #ff8787;
+}
+@media (max-width: 760px) {
+  .call-card {
+    right: 12px;
+    top: auto;
+    bottom: 140px;
+    width: min(300px, calc(100% - 24px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-card.is-ringing .call-face {
+    animation: none;
+  }
+}

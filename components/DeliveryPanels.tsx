@@ -58,20 +58,20 @@ export function PickupTicket() {
       )}
       {stage === "preparing" && (
         <div className="prep-bar" aria-label="Preparation progress">
-          <span>Packing your order · {Math.ceil(s.delivery.remaining)} s</span>
+          <span>Dey pack your order · {Math.ceil(s.delivery.remaining)} s</span>
           <i style={{ width: `${Math.max(4, 100 - (s.delivery.remaining / prepSeconds(s.orderIndex)) * 100)}%` }} />
         </div>
       )}
-      {stage === "fixingBag" && <p className="ticket-note">{d.vendorPerson} is adding the missing item…</p>}
+      {stage === "fixingBag" && <p className="ticket-note">{d.vendorPerson} dey add the missing item…</p>}
       {stage === "checkBag" && (
         <>
-          <p className="ticket-note">Compare the bag with the ticket before you leave.</p>
+          <p className="ticket-note">Check the bag well before you comot. Ticket and bag must match.</p>
           <div className="ticket-actions">
             <button className="btn btn-ghost" onClick={() => eng?.reportMissing()}>
-              SOMETHING’S MISSING <kbd>2</kbd>
+              SOMETHING NO DEY <kbd>2</kbd>
             </button>
             <button className="btn btn-primary" onClick={() => eng?.approveBag()}>
-              ALL THERE · TAKE BAG <kbd>1</kbd>
+              E COMPLETE · TAKE AM <kbd>1</kbd>
             </button>
           </div>
         </>
@@ -90,10 +90,10 @@ export function CashPayment() {
     <section className="cash-panel" aria-label="Cash payment">
       <p className="eyebrow">CASH ON DELIVERY · {d.code}</p>
       <h3>
-        {s.order.customer} hands you <b>{cedis(d.cashNote)}</b>
+        {s.order.customer} give you <b>{cedis(d.cashNote)}</b>
       </h3>
       <p>
-        Food total {cedis(d.foodTotal)}. How much change do you give back?
+        Food total {cedis(d.foodTotal)}. How much change you go give am?
       </p>
       <div className="change-options">
         {d.changeOptions.map((amount, i) => (
@@ -117,19 +117,19 @@ export function InteractionPrompt() {
   let text = "";
   let hint = "";
   if ((stage === "vendor" || stage === "findCustomer") && s.mounted) {
-    if (s.speedKmh < 3.6) { key = "E"; text = "Get off your bike"; }
-    else hint = "Slow down and park";
+    if (s.speedKmh < 3.6) { key = "E"; text = "Get down from the bike"; }
+    else hint = "Slow down, park am";
   } else if (stage === "vendor" || stage === "collect" || stage === "findCustomer") {
     const who = stage === "findCustomer" ? s.order.customer : d.vendorPerson;
-    const verb = stage === "vendor" ? `Confirm order with ${who}` : stage === "collect" ? `Collect the bag from ${who}` : `Hand over to ${who}`;
+    const verb = stage === "vendor" ? `Tell ${who}: “Night Market order”` : stage === "collect" ? `Take the bag from ${who}` : `Give ${who} the food`;
     if (near < 3) { key = "F"; text = verb; }
-    else if (near < 40) hint = `Walk to ${who} · ${Math.round(near)} m`;
+    else if (near < 40) hint = `Waka go ${who} · ${Math.round(near)} m`;
   } else if (stage === "returnBike") {
-    if (s.bikeDistance < 3) { key = "E"; text = "Mount and secure the bag"; }
-    else hint = `Walk back to your bike · ${Math.round(s.bikeDistance)} m`;
+    if (s.bikeDistance < 3) { key = "E"; text = "Climb the bike, lock the bag"; }
+    else hint = `Waka back to your bike · ${Math.round(s.bikeDistance)} m`;
   } else if (stage === "contact" && s.delivery.remaining <= 0) {
     if (s.speedKmh < 3.6) { key = "F"; text = `Call ${s.order.customer}`; }
-    else hint = "Stop to call the customer";
+    else hint = "Stop before you call";
   }
   if (!text && !hint) return null;
   const eng = engineRef.current;

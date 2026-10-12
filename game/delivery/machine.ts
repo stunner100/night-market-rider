@@ -1,4 +1,5 @@
 /** Pure delivery state machine. World proximity and rider state are supplied by the engine. */
+import { LINES, OBJECTIVES } from "../voice";
 export type DeliveryStage =
   | "offline"
   | "waiting"
@@ -97,12 +98,12 @@ export function reduceDelivery(
   c: DeliveryContext,
 ): DeliveryState {
   if (e.type === "offline")
-    return move(s, "offline", 0, "You are offline. Explore at your own pace.");
+    return move(s, "offline", 0, LINES.offline);
   if (e.type === "online" && s.stage === "offline")
-    return move(s, "waiting", 4, "Looking for nearby orders…");
+    return move(s, "waiting", 4, LINES.online);
   if (e.type === "offer" && s.stage === "waiting")
     return {
-      ...move(s, "offer", 25, "A new delivery is available."),
+      ...move(s, "offer", 25, LINES.offer),
       offered: s.offered + 1,
       elapsed: 0,
       callAttempts: 0,
@@ -119,7 +120,7 @@ export function reduceDelivery(
       s,
       "waiting",
       7,
-      "Offer declined. Waiting for the next request.",
+      LINES.declined,
     );
   if (
     e.type === "confirm" &&
@@ -132,8 +133,8 @@ export function reduceDelivery(
       "preparing",
       c.delay,
       c.delay > 5
-        ? "Vendor: One minute please — we’re finishing your food."
-        : "Vendor: Night Market pickup? Let me pack that for you.",
+        ? LINES.vendorBusy
+        : LINES.vendorReady,
     );
   if (
     e.type === "collect" &&
@@ -141,28 +142,28 @@ export function reduceDelivery(
     !c.mounted &&
     c.vendorDistance < 3
   )
-    return move(s, "checkBag", 0, `${c.vendorPerson ?? "Vendor"}: Here you go. Check it against your ticket.`);
+    return move(s, "checkBag", 0, LINES.vendorHands(c.vendorPerson ?? "Vendor"));
   if (e.type === "approveBag" && s.stage === "checkBag")
     return {
       ...move(
         s,
         "returnBike",
         0,
-        `${c.customer}: ${c.customerNote ?? "Call when you reach the junction. I’m beside the yellow MoMo kiosk."}`,
+        `${c.customer}: ${c.customerNote ?? "Call me when you reach the junction. I dey near the yellow MoMo kiosk."}`,
       ),
       missingAccepted: !!c.bagMissing && !s.itemFixed,
     };
   if (e.type === "reportMissing" && s.stage === "checkBag") {
     if (c.bagMissing && !s.itemFixed)
-      return move(s, "fixingBag", 3, `${c.vendorPerson ?? "Vendor"}: Ei, sorry! Let me add it now.`);
+      return move(s, "fixingBag", 3, LINES.vendorSorry(c.vendorPerson ?? "Vendor"));
     return {
-      ...move(s, "checkBag", 0, `${c.vendorPerson ?? "Vendor"}: Everything is there o — check the ticket again.`),
+      ...move(s, "checkBag", 0, LINES.vendorAllThere(c.vendorPerson ?? "Vendor")),
       falseReports: s.falseReports + 1,
     };
   }
   if (e.type === "giveChange" && s.stage === "payment")
     return {
-      ...move(s, "handoff", 2, `${c.customer}: Thank you!`),
+      ...move(s, "handoff", 2, LINES.thanks(c.customer)),
       changeError: Math.round((e.amount - (c.correctChange ?? 0)) * 100) / 100,
     };
   if (
@@ -172,13 +173,13 @@ export function reduceDelivery(
     c.destinationDistance < 85 &&
     Math.abs(c.speed) < 1
   )
-    return { ...move(s, "calling", 3, `Calling ${c.customer}…`), callAttempts: s.callAttempts + 1 };
+    return { ...move(s, "calling", 3, LINES.calling(c.customer)), callAttempts: s.callAttempts + 1 };
   if (e.type === "message" && !s.messageSent &&
       ["returnBike", "rideCustomer", "contact", "findCustomer"].includes(s.stage) && Math.abs(c.speed) < 1) {
     const canConfirm = s.stage === "contact" && s.callAttempts > 0 && c.destinationDistance < 85;
     return { ...move(s, canConfirm ? "findCustomer" : s.stage, canConfirm ? 0 : s.remaining,
-      canConfirm ? `${c.customer}: Sorry, I missed your call. ${c.customerReply ?? "Meet me beside the yellow MoMo kiosk."}`
-        : `You: I’m on my way. ${c.customer}: Thank you — ${c.customerNote ?? "call when you arrive."}`),
+      canConfirm ? LINES.missedCall(c.customer, c.customerReply ?? "Meet me near the yellow MoMo kiosk.")
+        : LINES.onMyWay(c.customer, c.customerNote ?? "call me when you reach.")),
       messageSent: true };
   }
   if (
@@ -188,8 +189,8 @@ export function reduceDelivery(
     c.customerDistance < 3
   )
     return c.cashOrder
-      ? move(s, "payment", 0, `${c.customer}: Medaase. I’m paying cash — here.`)
-      : move(s, "handoff", 2, "Handing over your order…");
+      ? move(s, "payment", 0, LINES.payCash(c.customer))
+      : move(s, "handoff", 2, LINES.handing);
   if (e.type !== "tick") return s;
   const dt = Math.max(0, Math.min(e.dt, 1));
   const next = {
@@ -206,7 +207,7 @@ export function reduceDelivery(
             next,
             "waiting",
             7,
-            "Offer expired. Another request will arrive shortly.",
+            LINES.expired,
           )
         : next;
     case "ridePickup":
@@ -215,7 +216,7 @@ export function reduceDelivery(
             next,
             "vendor",
             0,
-            "Park safely, get off and walk to the vendor.",
+            LINES.parkAtVendor,
           )
         : next;
     case "vendor":
@@ -224,7 +225,7 @@ export function reduceDelivery(
       return c.destinationDistance > 100 ? move(next, "rideCustomer") : next;
     case "fixingBag":
       return next.remaining <= 0
-        ? { ...move(next, "checkBag", 0, "Item added. Check the bag once more."), itemFixed: true }
+        ? { ...move(next, "checkBag", 0, LINES.itemAdded), itemFixed: true }
         : next;
     case "preparing":
       return next.remaining <= 0
@@ -232,7 +233,7 @@ export function reduceDelivery(
             next,
             "collect",
             0,
-            "Vendor: Your food is ready. Collect your order.",
+            LINES.foodReady,
           )
         : next;
     case "returnBike":
@@ -241,22 +242,22 @@ export function reduceDelivery(
       return c.destinationDistance < 65 ? move(next, "contact") : next;
     case "calling":
       if (next.remaining <= 0 && c.missesFirstCall && s.callAttempts === 1)
-        return move({ ...next, messageSent: false }, "contact", 5, "No answer. Try calling again, or send an arrival message.");
+        return move({ ...next, messageSent: false }, "contact", 5, LINES.noAnswer);
       return next.remaining <= 0
         ? move(
             next,
             "findCustomer",
             0,
-            `${c.customer}: ${c.customerReply ?? "Hello! I’m beside the yellow MoMo kiosk. Look for my green marker."}`,
+            `${c.customer}: ${c.customerReply ?? "Hello! I dey near the yellow MoMo kiosk. Look for the green marker."}`,
           )
         : next;
     case "handoff":
       return next.remaining <= 0
-        ? move(next, "completed", 5, "Delivery complete. Medaase!")
+        ? move(next, "completed", 5, LINES.done)
         : next;
     case "completed":
       return next.remaining <= 0
-        ? move(next, "waiting", 5, "Ready for another delivery.")
+        ? move(next, "waiting", 5, LINES.nextReady)
         : next;
     default:
       return next;
@@ -276,27 +277,23 @@ export function deliveryObjective(
   mounted: boolean,
 ): string {
   const labels: Record<DeliveryStage, string> = {
-    offline: "Explore Accra · go online when ready",
-    waiting: "Waiting for a delivery request",
-    offer: "Review your delivery offer",
-    ridePickup: "Ride to the vendor",
-    vendor: mounted
-      ? "Park and get off your bike"
-      : "Walk to the vendor · confirm order",
-    preparing: "Vendor is preparing your food",
-    collect: "Collect your order",
-    checkBag: "Check the bag against the ticket",
-    fixingBag: "Vendor is adding the missing item",
-    returnBike: "Return to your parked bike",
-    rideCustomer: "Deliver to the customer",
-    contact: "Stop and call the customer",
-    calling: "Connecting your call…",
-    findCustomer: mounted
-      ? "Park · find the customer on foot"
-      : "Walk to the customer · hand over order",
-    payment: "Collect cash · give the right change",
-    handoff: "Handing over the food",
-    completed: "Delivery complete",
+    offline: OBJECTIVES.offline,
+    waiting: OBJECTIVES.waiting,
+    offer: OBJECTIVES.offer,
+    ridePickup: OBJECTIVES.ridePickup,
+    vendor: mounted ? OBJECTIVES.vendorMounted : OBJECTIVES.vendorWalk,
+    preparing: OBJECTIVES.preparing,
+    collect: OBJECTIVES.collect,
+    checkBag: OBJECTIVES.checkBag,
+    fixingBag: OBJECTIVES.fixingBag,
+    returnBike: OBJECTIVES.returnBike,
+    rideCustomer: OBJECTIVES.rideCustomer,
+    contact: OBJECTIVES.contact,
+    calling: OBJECTIVES.calling,
+    findCustomer: mounted ? OBJECTIVES.findMounted : OBJECTIVES.findWalk,
+    payment: OBJECTIVES.payment,
+    handoff: OBJECTIVES.handoff,
+    completed: OBJECTIVES.completed,
   };
   return labels[stage];
 }

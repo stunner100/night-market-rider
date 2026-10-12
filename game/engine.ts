@@ -20,6 +20,8 @@ import { movementTarget } from "./rider-controls";
 import { buildDeliveryPlace, disposeDeliveryPlace } from "./world/delivery-place";
 import { reduceDelivery, initialDelivery, deliveryPhase, type DeliveryEvent, type DeliveryContext } from "./delivery/machine";
 import { chooseRoadside } from "./world/roadside-placement";
+import { CRASH, DELIVERY, RIDER_HINTS, STREET, pick } from "./voice";
+import { CallDirector, type CallContext, type Incoming, type Trigger } from "./calls";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -111,6 +113,11 @@ export class Engine {
   private steerSmooth = 0;
   private camHeading = 0;
   private spillToastAt = 0;
+  private calls = new CallDirector();
+  private crashCount = 0;
+  private lateOrderId = -1;
+  private ringAt = 0;
+  private messageId = 1;
 
   /** True while the order is in the delivery box (after vendor collection). */
   private carryingFood() {
@@ -134,7 +141,7 @@ export class Engine {
 
   navigateTo(kind: 'base' | 'fuel') {
     const s=useGame.getState();
-    if(s.order){s.pushToast('Finish your delivery or go offline before changing destination.');return;}
+    if(s.order){s.pushToast(RIDER_HINTS.finishFirst);return;}
     const fuel=(this.osmPlay?.fuelBodies()??this.world.fuelStations).slice().sort((a,b)=>Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];
     this.freeDestination=kind==='base'?{...this.base,name:'Night Market rider base'}:fuel?{x:fuel.x,z:fuel.z,name:'Fuel station'}:null;
     s.set({navigationTarget:this.freeDestination?.name??'',phoneOpen:false});this._osmRouteTarget='';
@@ -143,14 +150,14 @@ export class Engine {
   serviceBike() {
     const s=useGame.getState();
     if(s.paused || Math.hypot(this.px-this.base.x,this.pz-this.base.z)>14 || Math.abs(this.speed)>1)return;
-    this._fuelWarned=false;s.set({fuel:100,strikes:0,boost:100});s.pushToast('Bike serviced. Fuel topped up. Ready for the city.');this.audio.pickup();
+    this._fuelWarned=false;s.set({fuel:100,strikes:0,boost:100});s.pushToast(RIDER_HINTS.serviced);this.audio.pickup();
   }
   roadsideAssist() {
     const s=useGame.getState();
     if(s.paused || s.fuel>0 || Math.abs(this.speed)>1)return;
     this.dispatchDelivery({type:'offline'});
     this.px=this.base.x;this.pz=this.base.z;this.speed=0;s.set({mounted:true,fuel:35,phoneOpen:false});
-    s.pushToast('Roadside assistance brought you to base with reserve fuel.');
+    s.pushToast(RIDER_HINTS.rescued);
   }
   private vendorPlace: THREE.Group | null = null;
   private customerPlace: THREE.Group | null = null;
@@ -206,7 +213,69 @@ export class Engine {
       this.world.dropMarker.position.set(this.customerNPC.position.x,.1,this.customerNPC.position.z);
     }
     if (next.stage === 'completed') this.completeDelivery();
+    if (before.stage === 'offline' && next.stage === 'waiting') this.raise('online');
     if (next.message && next.message !== before.message) s.pushToast(next.message);
+  }
+
+  private clockLabel() {
+    const h = useGame.getState().hour;
+    return `${Math.floor(h).toString().padStart(2, "0")}:${Math.floor((h % 1) * 60).toString().padStart(2, "0")}`;
+  }
+
+  /** Raise a story trigger; texts land at once, calls queue until the rider is free. */
+  raise(trigger: Trigger, extra: Partial<CallContext> = {}) {
+    const s = useGame.getState();
+    const texts = this.calls.notify(trigger, { nickname: s.nickname, deliveries: s.deliveries, earnings: s.earnings, ...extra });
+    for (const t of texts) for (const line of t.lines) this.receiveText(t, line);
+  }
+
+  private receiveText(from: Incoming, text: string) {
+    const s = useGame.getState();
+    const msg = { id: this.messageId++, from: from.script.from, name: from.name, text, time: this.clockLabel() };
+    s.set({ inbox: [msg, ...s.inbox].slice(0, 40), unread: s.unread + 1 });
+    s.pushToast(`💬 ${from.name}: ${text.length > 64 ? `${text.slice(0, 62)}…` : text}`);
+    this.audio.textAlert();
+  }
+
+  private updateCalls() {
+    const s = useGame.getState();
+    const call = s.incomingCall;
+    if (call && !call.answered) {
+      if (this.shiftSeconds - this.ringAt > 2.2) { this.ringAt = this.shiftSeconds; this.audio.ring(); }
+      if (this.shiftSeconds - call.ringStarted > 14) this.declineCall();
+      return;
+    }
+    if (call) return;
+    const next = this.calls.next(this.shiftSeconds, s.delivery.stage, false);
+    if (!next) return;
+    s.set({ incomingCall: { from: next.script.from, name: next.name, lines: next.lines, step: 0, answered: false, missed: next.missed, ringStarted: this.shiftSeconds } });
+    this.ringAt = this.shiftSeconds;
+    this.audio.ring();
+    navigator.vibrate?.([200, 100, 200]);
+  }
+
+  answerCall() {
+    const s = useGame.getState();
+    if (!s.incomingCall || s.incomingCall.answered) return;
+    s.set({ incomingCall: { ...s.incomingCall, answered: true }, callLog: [{ id: this.messageId++, from: s.incomingCall.from, name: s.incomingCall.name, missed: false, time: this.clockLabel() }, ...s.callLog].slice(0, 30) });
+  }
+
+  /** Advance an answered call; hangs up after the last line. */
+  nextCallLine() {
+    const s = useGame.getState();
+    const call = s.incomingCall;
+    if (!call?.answered) return;
+    if (call.step + 1 < call.lines.length) s.set({ incomingCall: { ...call, step: call.step + 1 } });
+    else s.set({ incomingCall: null });
+  }
+
+  declineCall() {
+    const s = useGame.getState();
+    const call = s.incomingCall;
+    if (!call) return;
+    if (call.answered) { s.set({ incomingCall: null }); return; }
+    s.set({ incomingCall: null, callLog: [{ id: this.messageId++, from: call.from, name: call.name, missed: true, time: this.clockLabel() }, ...s.callLog].slice(0, 30) });
+    if (call.missed) this.receiveText({ script: { from: call.from } as Incoming["script"], name: call.name, lines: [] }, call.missed);
   }
 
   toggleOnline() {
@@ -239,17 +308,17 @@ export class Engine {
     const s = useGame.getState();
     if (s.paused || ['menu', 'loading'].includes(s.phase) || ['handoff', 'calling'].includes(s.delivery.stage)) return;
     if (s.mounted) {
-      if (Math.abs(this.speed) > 1) { s.pushToast('Brake to a stop before getting off.'); return; }
+      if (Math.abs(this.speed) > 1) { s.pushToast(RIDER_HINTS.stopFirst); return; }
       this.parked = { x: this.px, z: this.pz, heading: this.heading };
       const x = this.px + Math.cos(this.heading) * 1.5, z = this.pz - Math.sin(this.heading) * 1.5;
-      if (this.osmActive && this.osmWorld.collidesBuilding(x, z, .35)) { s.pushToast('Move to a clear space before parking.'); return; }
+      if (this.osmActive && this.osmWorld.collidesBuilding(x, z, .35)) { s.pushToast(RIDER_HINTS.clearSpace); return; }
       this.px = x; this.pz = z;
       s.set({ mounted: false });
     } else {
-      if (this.deliveryContext().bikeDistance > 3) { s.pushToast('Walk back to your parked bike.'); return; }
+      if (this.deliveryContext().bikeDistance > 3) { s.pushToast(RIDER_HINTS.walkToBike); return; }
       this.px = this.parked.x; this.pz = this.parked.z; this.heading = this.parked.heading;
       s.set({ mounted: true });
-      if (s.delivery.stage === 'returnBike') { s.pushToast('🛵 Bag secured in the delivery box'); this.audio.pickup(); }
+      if (s.delivery.stage === 'returnBike') { s.pushToast(DELIVERY.bagSecured); this.audio.pickup(); }
     }
     this.speed = 0;
     this.rig.body.visible = !s.mounted;
@@ -333,7 +402,7 @@ export class Engine {
     this.basePlace=buildDeliveryPlace('NIGHT MARKET · RIDER BASE');
     this.basePlace.position.set(baseSpot.x,0,baseSpot.z);this.basePlace.rotation.y=baseSpot.yaw;
     this.scene.add(this.basePlace);
-    useGame.getState().pushToast("🗺️ Real Accra map loaded");
+    useGame.getState().pushToast(DELIVERY.mapLoaded);
   }
 
   private tickOsm(dt: number, elapsed: number) {
@@ -397,13 +466,18 @@ export class Engine {
     }
     this.audio.ensure();
     this._applyKey(e.code, true);
-    if (e.code === "KeyH" && !e.repeat) { this.audio.horn(); useGame.getState().pushToast("📯 Poooop!"); }
+    if (e.code === "KeyH" && !e.repeat) { this.audio.horn(); useGame.getState().pushToast(pick(STREET.horn)); }
     if (e.repeat) return;
     if (e.code === 'KeyE') this.toggleMount();
     if (e.code === 'KeyF') this.interact();
     if (/^Digit[1-3]$/.test(e.code)) this.choose(Number(e.code.slice(5)));
     if (e.code === 'KeyN') { const s = useGame.getState(); s.set({ phoneOpen: !s.phoneOpen }); }
-    if (e.code === "Enter") this.confirm();
+    if (e.code === "Enter") {
+      const call = useGame.getState().incomingCall;
+      if (call) { if (call.answered) this.nextCallLine(); else this.answerCall(); }
+      else this.confirm();
+    }
+    if (e.code === "Backspace" && useGame.getState().incomingCall) this.declineCall();
   };
   private _onKeyUp = (e: KeyboardEvent) => this._applyKey(e.code, false);
 
@@ -474,6 +548,10 @@ export class Engine {
     this.world.setMarkers(null, null, 'offline');
     this.audio.setPaused(false);
     this._fuelWarned = false;
+    this.crashCount = 0;
+    this.lateOrderId = -1;
+    s.set({ incomingCall: null });
+    this.raise(s.tutorialDone ? 'shiftReturn' : 'shiftStart');
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0; this.camHeading = this.heading; this.steerSmooth = 0;
     if (this.osmActive) {
       const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
@@ -530,7 +608,7 @@ export class Engine {
     s.set({ foodCondition: 100 });
     this.dispatchDelivery({ type: 'accept' });
     this.world.setMarkers({ x: s.order.pickupX, z: s.order.pickupZ }, null, "toPickup");
-    s.pushToast(`Order accepted — head to ${s.order.vendor}!`);
+    s.pushToast(DELIVERY.accept(s.order.vendor));
   }
 
   private _pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -730,6 +808,7 @@ export class Engine {
     const s = useGame.getState();
     if (this.crashCool > 0) return;
     this.crashCool = 1.6;
+    this.raise('crash', { crashes: ++this.crashCount });
     this.speed = -Math.min(3, Math.abs(this.speed) * 0.15); // slight bounce-back
     this.shake = 1.2;
     this.orderCollisions++;
@@ -741,7 +820,7 @@ export class Engine {
     const rating = Math.max(2.5, s.rating - 0.3);
     s.set({ strikes, streak, rating });
     s.pushToast(why);
-    s.pushToast('Take it easy. Your shift is still active.');
+    s.pushToast(STREET.calm);
   }
 
   failOrder(why: string) {
@@ -790,8 +869,11 @@ export class Engine {
       banner: null, tutorialDone: true, onTime: s.onTime + (s.timeLeft > 0 ? 1 : 0),
     });
     persistProgress();
-    if (noCrash && condition >= 95) s.pushToast("✨ PERFECT DELIVERY · FOOD STILL HOT");
-    else if (noCrash) s.pushToast("✨ NO COLLISION BONUS");
+    this.raise('delivered', { payout: reward, earnings: useGame.getState().earnings, deliveries });
+    if (noCrash && condition >= 95) this.raise('perfect');
+    if (newStreak === 3) this.raise('streak3');
+    if (noCrash && condition >= 95) s.pushToast(DELIVERY.perfect);
+    else if (noCrash) s.pushToast(DELIVERY.clean);
     this.world.setMarkers(null, null, "delivered");
     if (this.targetLabel) { this.targetLabel.material.dispose(); this.scene.remove(this.targetLabel); this.targetLabel = null; }
     // Time progression is independent of deliveries.
@@ -853,7 +935,7 @@ export class Engine {
       const c = Math.ceil(this.countdownT);
       if (c !== s.countdown && c >= 0) {
         s.set({ countdown: Math.max(0, c) });
-        if (c > 0) this.audio.countBeep(false); else { this.audio.countBeep(true); s.pushToast("LET'S RIDE! 🛵"); }
+        if (c > 0) this.audio.countBeep(false); else { this.audio.countBeep(true); s.pushToast(pick(STREET.start)); }
       }
       if (this.countdownT <= 0) this.offerNext();
     }
@@ -890,7 +972,7 @@ export class Engine {
       this.speed = Math.max(0, this.speed - 12 * dt); // coast to stop
       if (this.speed < 0.5 && this._fuelWarned !== true) {
         this._fuelWarned = true;
-        s.pushToast("⛽ OUT OF FUEL! Find a fuel station!");
+        s.pushToast(pick(STREET.fuelOut));
         s.set({ banner: "OUT OF FUEL ⛽" });
       }
     }
@@ -956,7 +1038,7 @@ export class Engine {
       const d = Math.hypot(this.px - r.x, this.pz - r.z);
       if (d < r.r && Math.abs(this.speed) > 13 && this.py === 0) {
         this.vy = 6; this.speed *= 0.88; this.shake = Math.max(this.shake, 0.5);
-        s.pushToast("⛰️ Speed ramp!");
+        s.pushToast(pick(STREET.ramp));
       }
     }
     for (const p of potholes) {
@@ -966,7 +1048,7 @@ export class Engine {
         this.shake = Math.max(this.shake, 0.7);
         this.audio.noise(0.15, 0.3);
         if (this.carryingFood()) this.spill(4 + Math.abs(this.speed) * 0.35, 'Pothole');
-        else s.pushToast("🕳️ Pothole!");
+        else s.pushToast(pick(STREET.pothole));
       }
     }
 
@@ -974,7 +1056,7 @@ export class Engine {
     if (riding && !onFoot && this.crashCool <= 0 && this.world.colliders) {
       for (const col of this.world.colliders) {
         if (this.px >= col.minX && this.px <= col.maxX && this.pz >= col.minZ && this.pz <= col.maxZ) {
-          this.crash(`💥 Collided with ${col.name}! Easy oo.`);
+          this.crash(pick(CRASH.wall).replace("{name}", col.name));
           const cx = (col.minX + col.maxX) / 2;
           const cz = (col.minZ + col.maxZ) / 2;
           const angle = Math.atan2(this.px - cx, this.pz - cz);
@@ -996,8 +1078,7 @@ export class Engine {
         const sideSigned = dx * Math.cos(yaw) - dz * Math.sin(yaw);
         const side = Math.abs(sideSigned);
         const hit = along < halfL + 0.45 && side < halfW + 0.32;
-        const crashLine = c.kind === "okada" ? "🏍️ Okada clash! Chale, watch am." : c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : c.kind === "bus" ? "🚌 Bus bump! Easy oo." : c.kind === "taxi" ? "🚕 Taxi crash! Chale, easy oo." : "🚗 Crash! Chale, easy oo.";
-        if (hit && Math.abs(this.speed) > 4) { this.crash(crashLine); break; }
+        if (hit && Math.abs(this.speed) > 4) { this.crash(pick(CRASH[c.kind as keyof typeof CRASH] ?? CRASH.car)); break; }
         else if (hit) {
           // Slow contact: ease the rider out to the vehicle's side rather than pinning them.
           const push = (halfW + 0.34 - side) * (sideSigned >= 0 ? 1 : -1);
@@ -1008,7 +1089,7 @@ export class Engine {
         if (!hit && close && Math.abs(this.speed) > 16 && this.nearCool <= 0) {
           this.nearCool = 2;
           s.set({ score: s.score + 100, xp: s.xp + 25 });
-          s.pushToast("😱 NEAR MISS +100");
+          s.pushToast(pick(STREET.nearMiss));
           this.audio.coin();
         }
       }
@@ -1034,7 +1115,7 @@ export class Engine {
           this.orderCollisions++;
           this.spill(12);
           s.set({ score: Math.max(0, s.score - 50) });
-          s.pushToast(p.goat ? "🐐 Oof! Goat knocked down!" : "💥 BAM! Pedestrian wiped out! Easy oo!");
+          s.pushToast(pick(p.goat ? STREET.goat : STREET.pedestrian));
           this.audio.crash();
           this.crashCool = 0.8;
           break;
@@ -1046,7 +1127,7 @@ export class Engine {
         if (Math.hypot(this.px - c.x, this.pz - c.z) < 2.2) {
           c.taken = true; c.mesh.visible = false;
           s.set({ xp: s.xp + 50, score: s.score + 50, boost: Math.min(100, s.boost + 15) });
-          s.pushToast("🪙 Night Market coin +50 XP");
+          s.pushToast(pick(STREET.coin));
           this.audio.coin();
         }
       }
@@ -1060,12 +1141,12 @@ export class Engine {
               const newFuel = Math.min(100, s.fuel + refuelRate);
               s.set({ fuel: newFuel });
               if (s.fuel < 30 && newFuel >= 30) {
-                s.pushToast(`⛽ Refueling at ${osm ? fuelBrand(fs) : "GOIL"}...`);
+                s.pushToast(`⛽ Dey fill tank for ${osm ? fuelBrand(fs) : "GOIL"}...`);
                 s.set({ banner: null });
                 this._fuelWarned = false;
               }
               if (newFuel >= 99) {
-                s.pushToast("⛽ Tank full! 100% — Let's ride!");
+                s.pushToast(pick(STREET.refuelDone));
                 s.set({ banner: null });
                 this._fuelWarned = false;
               }
@@ -1141,8 +1222,14 @@ export class Engine {
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.12;
+      this.updateCalls();
+      if (s.hour >= 19) this.raise('night');
+      if (o && s.timeLeft <= 0 && this.lateOrderId !== o.id && ['rideCustomer', 'contact'].includes(s.delivery.stage)) {
+        this.lateOrderId = o.id;
+        this.raise('late', { customer: o.customer });
+      }
       if (s.fuel < 20 && s.fuel > 0 && !this._fuelWarned) {
-        s.pushToast("⛽ Fuel low! Find a station!");this._fuelWarned=true;
+        s.pushToast(pick(STREET.fuelLow));this._fuelWarned=true;this.raise('fuelLow');
       }
       const targetX = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropX : o?.pickupX ?? 0;
       const targetZ = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropZ : o?.pickupZ ?? 0;

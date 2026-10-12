@@ -1,6 +1,7 @@
 import { initialDelivery, type DeliveryState } from "./delivery/machine";
 import { create } from "zustand";
 import { latLonToWorld } from "./world/coordinates";
+import type { ContactId } from "./calls";
 
 export type Phase =
   | "offline"
@@ -33,6 +34,20 @@ export interface Order {
 }
 
 interface Toast { id: number; text: string; }
+
+export interface PhoneCall {
+  from: ContactId;
+  name: string;
+  lines: string[];
+  /** Line currently shown once answered. */
+  step: number;
+  answered: boolean;
+  missed?: string;
+  /** Shift clock (s) when it started ringing. */
+  ringStarted: number;
+}
+export interface InboxMessage { id: number; from: ContactId; name: string; text: string; time: string; }
+export interface CallLogEntry { id: number; from: ContactId; name: string; missed: boolean; time: string; }
 
 export interface GameState {
   navigationTarget: string;
@@ -73,6 +88,10 @@ export interface GameState {
   compass: string;
   banner: string | null;
   toasts: Toast[];
+  incomingCall: PhoneCall | null;
+  inbox: InboxMessage[];
+  callLog: CallLogEntry[];
+  unread: number;
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -128,6 +147,10 @@ export const useGame = create<GameState>((set, get) => ({
   compass: "N",
   banner: null,
   toasts: [],
+  incomingCall: null,
+  inbox: [],
+  callLog: [],
+  unread: 0,
   sound: true,
   nickname: "Rider",
   foodCondition: 100,
@@ -163,11 +186,11 @@ const VENDORS = [
   { vendor: "Jollof Available", food: "Party Jollof", emoji: "🍚" },
   { vendor: "Chicken Republic", food: "Chicken Wings", emoji: "🍗" },
   { vendor: "Osikan Chop Bar", food: "Fufu & Light Soup", emoji: "🍲" },
-  { vendor: "Burger Spot", food: "Beef Burger", emoji: "🍔" },
+  { vendor: "Shiashie Burger Joint", food: "Beef Burger", emoji: "🍔" },
   { vendor: "Pizza Inn Legon", food: "Pepperoni Pizza", emoji: "🍕" },
-  { vendor: "Cold Store", food: "Chilled Drinks", emoji: "🥤" },
+  { vendor: "Auntie Mercy Cold Store", food: "Chilled Drinks", emoji: "🥤" },
 ];
-const CUSTOMERS = ["Nana", "Ama", "Kwame", "Yaw", "Kojo", "Efya", "Kofi", "Abena"];
+const CUSTOMERS = ["Nana Ama", "Kwame", "Akosua", "Yaw", "Selorm", "Efya", "Nii Armah", "Abena", "Kwabena", "Naa Dedei", "Elikem", "Adjoa"];
 
 const ACCRA_ORIGIN = { lat: 5.6425, lon: -0.18628 };
 const GEO_PADS = [
