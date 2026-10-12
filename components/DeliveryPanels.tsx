@@ -5,6 +5,7 @@ import { engineRef } from "./GameClient";
 import { CHECKPOINT } from "@/game/checkpoint";
 import { perksFor } from "@/game/archetypes";
 import SoundCloudRadio from "./SoundCloudRadio";
+import LiveRadio from "./LiveRadio";
 import { STATIONS } from "@/game/radio";
 
 const TICKET_STAGES = ["vendor", "preparing", "collect", "checkBag", "fixingBag"];
@@ -197,6 +198,7 @@ export function RadioBar() {
         {st && caption && <span>{caption}</span>}
         <kbd>R</kbd>
       </button>
+      <LiveRadio />
       <SoundCloudRadio />
     </div>
   );

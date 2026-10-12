@@ -9,6 +9,8 @@ export interface Station {
   dj: string;
   /** Public SoundCloud playlist streamed through the official widget. */
   soundcloud?: string;
+  /** A real station's public live stream, played in an <audio> element. */
+  stream?: string;
   /** Synth groove in GameAudio for fictional stations. */
   beat?: "highlife" | "hiplife";
   /** "Artist — Title" for music stations. */
@@ -16,7 +18,18 @@ export interface Station {
   chatter: string[];
 }
 
+/** Real Accra/Kumasi stations' public streams (checked 12 Oct 2026); `dj` is the on-air tagline. */
+const LIVE: Station[] = [
+  { name: "Hitz FM", freq: "103.9", dj: "Urban hits from Accra", stream: "https://mmg.streamguys1.com/HitzFM-mp3", songs: [], chatter: [] },
+  { name: "Joy FM", freq: "99.7", dj: "Accra's news & music", stream: "https://mmg.streamguys1.com/JoyFM-mp3?key=8689cc761932e3151f94ddbdbfdf4aa0f4000234b5caeaaa", songs: [], chatter: [] },
+  { name: "Citi FM", freq: "97.3", dj: "Citi, Accra", stream: "https://citi973fm.radioca.st/stream", songs: [], chatter: [] },
+  { name: "Ghana Music Radio", freq: "Online", dj: "Only Ghana music", stream: "https://streaming.radio.co/s92f890821/listen", songs: [], chatter: [] },
+  { name: "Adom FM", freq: "106.3", dj: "Twi radio, Accra", stream: "https://mmg.streamguys1.com/AdomFM-mp3?key=9099965b0e49394af3be11b42a71f0faa90378311d2d85f", songs: [], chatter: [] },
+  { name: "Peace FM", freq: "104.3", dj: "Twi talk & highlife", stream: "https://peacefm-atunwadigital.streamguys1.com/peacefm", songs: [], chatter: [] },
+];
+
 export const STATIONS: Station[] = [
+  ...LIVE,
   {
     name: "Ghana Top 2025", freq: "SoundCloud", dj: "21Charts",
     soundcloud: "https://soundcloud.com/21charts/sets/ghana-songs-2025-todays-top",
@@ -78,6 +91,7 @@ export function radioCaption(stationIndex: number, beat: number): string {
   const st = STATIONS[stationIndex];
   // The SoundCloud widget reports its own "now playing".
   if (!st || st.soundcloud) return "";
+  if (st.stream) return `📡 LIVE · ${st.dj}`;
   if (!st.songs.length) return `${st.dj}: “${st.chatter[beat % st.chatter.length]}”`;
   if (beat % 2 === 1) return `${st.dj}: “${st.chatter[Math.floor(beat / 2) % st.chatter.length]}”`;
   return `♪ ${st.songs[Math.floor(beat / 2) % st.songs.length]}`;

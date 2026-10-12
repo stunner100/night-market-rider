@@ -101,3 +101,10 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
 - It plays only while the rider is on the bike. Dismounting, pausing, muting or changing station pauses it, and remounting resumes the same track. Each shift starts at a random track, region-blocked tracks are skipped on error, the volume ducks while the phone rings, and the radio caption shows the current title and artist.
 - Browsers block audio until the player has interacted with the page, so a blocked start retries on the next key press or tap. If SoundCloud cannot load (offline or blocked), the caption says so and R switches to the synth stations, which now also play only while mounted.
 - Validation: TypeScript and 40 tests pass. Browser: the playlist loaded and shuffled ("Effiakuma Broken Heart — Kofi Kinaata"), played after user input, paused on dismount and resumed on mount, paused on station change. The test identity was removed afterwards.
+
+## Live Ghanaian radio, 12 October 2026
+
+- The radio now opens on real Ghanaian stations, using each station's public live stream in a plain `<audio>` element (`components/LiveRadio.tsx`): Hitz FM 103.9 (default), Joy FM 99.7, Citi FM 97.3, Ghana Music Radio, Adom FM 106.3 and Peace FM 104.3. R cycles through them, then the SoundCloud playlist, the fictional stations and off.
+- Same rules as before: it plays only while the rider is on the bike, pauses on dismount, pause, mute or station change, ducks while the phone rings, and rejoins the live edge after a long pause. If a stream fails, it looks up the station's current stream in the open Radio Browser directory once, then tells the rider to press R.
+- Stream URLs were checked (HTTP 200, audio/mpeg or audio/aac) on 12 Oct 2026. Streams with tokens can rotate, which the directory lookup covers.
+- Validation: TypeScript and 40 tests pass. Browser, with a normal click on ENTER ACCRA: Hitz FM played straight away; dismounting paused and remounting resumed it; all six live stations played on switching; switching to SoundCloud stopped the live stream. Test identity removed afterwards.

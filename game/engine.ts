@@ -266,7 +266,8 @@ export class Engine {
   private radioSay(line: string) {
     const s = useGame.getState();
     const st = STATIONS[s.radio];
-    if (st && !st.soundcloud) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
+    // Real stations and the SoundCloud playlist don't get our fictional DJ's lines.
+    if (st && !st.soundcloud && !st.stream) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
   }
 
   private clearCheckpoint() {
