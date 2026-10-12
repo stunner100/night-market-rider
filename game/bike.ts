@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { nightMarketTexture, textTexture } from "./textures";
 import { buildHumanoid, buildHelmet, HumanoidRig } from "./characters";
@@ -39,6 +40,17 @@ export function buildRider(): RiderRig {
   const rider = gRider();
   const boxLid = gDeliveryBox();
 
+  // Batch the static frame without touching wheels, rider joints, lights or controls.
+  const staticBatches = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for(const child of [...bike.children]) {
+    if(!(child instanceof THREE.Mesh) || child===frontWheel || child===rearWheel || child===brakeLight || child.children.length || Array.isArray(child.material))continue;
+    child.updateMatrix();const geo=child.geometry.index?child.geometry.toNonIndexed():child.geometry.clone();geo.applyMatrix4(child.matrix);
+    const list=staticBatches.get(child.material)??[];list.push(geo);staticBatches.set(child.material,list);bike.remove(child);child.geometry.dispose();
+  }
+  for(const [material,geos] of Array.from(staticBatches.entries())){
+    const merged=mergeGeometries(geos,false);geos.forEach(g=>g.dispose());if(!merged)continue;
+    const mesh=new THREE.Mesh(merged,material);mesh.castShadow=true;mesh.receiveShadow=true;bike.add(mesh);
+  }
   return { group, lean, body, frontWheel, rearWheel, brakeLight, headlight, exhaust, boxLid, rider, gripL, gripR, pegL, pegR, footDown };
 
   function gFrame() {

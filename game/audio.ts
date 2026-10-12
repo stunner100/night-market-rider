@@ -44,7 +44,7 @@ export class GameAudio {
     if (!this.ctx || !this.engOsc || !this.engGain) return;
     const t = this.ctx.currentTime;
     this.engOsc.frequency.setTargetAtTime(55 + speed01 * 130 + (boosting ? 40 : 0), t, 0.08);
-    this.engGain.gain.setTargetAtTime(0.02 + speed01 * 0.06, t, 0.1);
+    this.engGain.gain.setTargetAtTime(speed01 < 0 ? 0 : 0.012 + speed01 * 0.06, t, 0.1);
   }
 
   blip(freq: number, dur = 0.12, type: OscillatorType = "sine", vol = 0.3, when = 0) {
@@ -74,6 +74,16 @@ export class GameAudio {
   coin() { this.blip(1567, 0.09, "square", 0.18); }
   crash() { this.noise(0.35, 0.4); this.blip(90, 0.3, "sawtooth", 0.35); }
   horn() { this.blip(370, 0.25, "square", 0.25); }
+  /** Another driver's two-tone horn, quieter with distance. */
+  trafficHorn(distance: number) {
+    const vol = 0.11 * Math.max(0.15, 1 - distance / 70);
+    const base = 300 + Math.random() * 160;
+    const beeps = Math.random() < 0.5 ? 1 : 2;
+    for (let i = 0; i < beeps; i++) {
+      this.blip(base, 0.16, "square", vol, i * 0.22);
+      this.blip(base * 1.26, 0.16, "square", vol * 0.7, i * 0.22);
+    }
+  }
   boostSfx() { this.noise(0.4, 0.2); this.blip(220, 0.35, "sawtooth", 0.2); }
   fail() { this.blip(300, 0.25, "sawtooth", 0.3); this.blip(200, 0.4, "sawtooth", 0.3, 0.2); }
 

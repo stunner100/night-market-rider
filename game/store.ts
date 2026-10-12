@@ -1,7 +1,10 @@
+import { initialDelivery, type DeliveryState } from "./delivery/machine";
 import { create } from "zustand";
 import { latLonToWorld } from "./world/coordinates";
 
 export type Phase =
+  | "offline"
+  | "waiting"
   | "loading"
   | "menu"
   | "countdown"
@@ -31,7 +34,18 @@ export interface Order {
 
 interface Toast { id: number; text: string; }
 
-interface GameState {
+export interface GameState {
+  navigationTarget: string;
+  atBase: boolean;
+  delivery: DeliveryState;
+  mounted: boolean;
+  interactionDistance: number;
+  bikeDistance: number;
+  distanceRidden: number;
+  onTime: number;
+  phoneOpen: boolean;
+  tutorialDone: boolean;
+  hour: number;
   phase: Phase;
   paused: boolean;
   countdown: number;
@@ -52,11 +66,21 @@ interface GameState {
   speedKmh: number;
   distM: number;
   turnHint: string;
+  /** Next GPS maneuver for the nav banner; null when no route is active. */
+  navManeuver: "left" | "right" | "straight" | "uturn" | "arrive" | null;
+  navTurnIn: number;
+  roadName: string;
+  compass: string;
   banner: string | null;
   toasts: Toast[];
   sound: boolean;
   nickname: string;
-  lastDelivery: { reward: number; xp: number; rating: number; streak: number } | null;
+  /** 0–100 state of the food in the delivery box; drives tip and rating. */
+  foodCondition: number;
+  lastDelivery: {
+    reward: number; xp: number; rating: number; streak: number; tip: number; condition: number;
+    comment: string; customer: string; lines: { label: string; amount: number }[];
+  } | null;
   leaderboard: { name: string; score: number }[];
   set: (p: Partial<GameState>) => void;
   pushToast: (text: string) => void;
@@ -76,6 +100,8 @@ if (typeof window !== "undefined") {
 }
 
 export const useGame = create<GameState>((set, get) => ({
+  navigationTarget: "", atBase: true, delivery: initialDelivery(), mounted: true, interactionDistance: 999, bikeDistance: 0,
+  distanceRidden: 0, onTime: 0, phoneOpen: false, tutorialDone: false, hour: 16,
   phase: "loading",
   paused: false,
   countdown: 3,
@@ -96,16 +122,23 @@ export const useGame = create<GameState>((set, get) => ({
   speedKmh: 0,
   distM: 0,
   turnHint: "",
+  navManeuver: null,
+  navTurnIn: 0,
+  roadName: "",
+  compass: "N",
   banner: null,
   toasts: [],
   sound: true,
   nickname: "Rider",
+  foodCondition: 100,
   lastDelivery: null,
   leaderboard: [],
   set: (p) => set(p),
   pushToast: (text) => {
     const id = toastId++;
-    set({ toasts: [...get().toasts.slice(-3), { id, text }] });
+    // Keep the screen readable: at most two toasts, and never the same line twice.
+    if (get().toasts.some((t) => t.text === text)) return;
+    set({ toasts: [...get().toasts.slice(-1), { id, text }] });
     setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), 2200);
   },
   clearBanner: () => set({ banner: null }),
@@ -125,7 +158,7 @@ export function saveBoard(name: string, score: number) {
 }
 
 const VENDORS = [
-  { vendor: "Papaye", food: "Fried Chicken & Chips", emoji: "🍗" },
+  { vendor: "Esi’s Legon Kitchen", food: "Jollof, chicken & shito", emoji: "🍗" },
   { vendor: "Waakye Special", food: "Waakye", emoji: "🍛" },
   { vendor: "Jollof Available", food: "Party Jollof", emoji: "🍚" },
   { vendor: "Chicken Republic", food: "Chicken Wings", emoji: "🍗" },
@@ -211,4 +244,24 @@ if (typeof window !== "undefined") {
     const h = (globalThis as unknown as { __nm_hydrate?: { nm: string | null; lb: { name: string; score: number }[] } }).__nm_hydrate;
     if (h) useGame.getState().set({ nickname: h.nm || "Rider", leaderboard: Array.isArray(h.lb) ? h.lb : [] });
   } catch { /* ignore */ }
+}
+
+const progressKeys = ['earnings', 'xp', 'deliveries', 'rating', 'ratingsCount', 'distanceRidden', 'onTime', 'tutorialDone'] as const;
+export function persistProgress() {
+  try {
+    const s = useGame.getState();
+    const data = Object.fromEntries(progressKeys.map(k => [k, s[k]]));
+    localStorage.setItem('nm_progress_v1', JSON.stringify(data));
+  } catch { /* Storage may be unavailable in private browsing. */ }
+}
+export function restoreProgress() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('nm_progress_v1') || '{}');
+    const data: Record<string, number | boolean> = {};
+    for (const key of progressKeys) {
+      if (key === 'tutorialDone' && typeof raw[key] === 'boolean') data[key] = raw[key];
+      else if (typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0) data[key] = raw[key];
+    }
+    useGame.getState().set(data);
+  } catch { /* Ignore invalid saves. */ }
 }

@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { createBusMesh, createCarMesh, createTaxiMesh, createTrotroMesh } from "../models";
+import { createBusMesh, createCarMesh, createOkadaMesh, createTaxiMesh, createTrotroMesh } from "../models";
 import type { AccraWorldRuntime } from "./accra-runtime";
 import type { TrafficBody } from "./gameplay-actors";
 import { pickContinuation } from "./road-follow";
-import type { RoadGraph } from "./road-graph";
+import type { Departure, RoadGraph } from "./road-graph";
 import { allowsVehicle, vehicleSpawnOk } from "./spawn-validity";
 
-type VehicleKind = "car" | "taxi" | "trotro" | "bus";
+type VehicleKind = "car" | "taxi" | "trotro" | "bus" | "okada";
 
 interface Vehicle extends TrafficBody {
   active: boolean;
@@ -23,7 +23,21 @@ interface Vehicle extends TrafficBody {
   toId: string;
   highway: string;
   kind: VehicleKind;
+  /** Right-hand lane offset from the road centreline (0 on one-way roads). */
+  lane: number;
+  /** Smoothed yaw so corners turn instead of snapping. */
+  yaw: number;
+  /** Seconds spent held up behind another vehicle or the rider. */
+  blocked: number;
+  sway: number;
 }
+
+// Ghana drives on the right: offset each vehicle into its own lane.
+const LANE: Record<string, number> = {
+  motorway: 2.6, trunk: 2.4, primary: 2.2, secondary: 1.9, tertiary: 1.7,
+  unclassified: 1.4, residential: 1.3, service: 0.9, living_street: 0.9, track: 0.7,
+};
+const laneFor = (highway: string) => LANE[highway.replace("_link", "")] ?? 1.2;
 
 const CAR_COLORS = [0xc92a2a, 0xf8f9fa, 0x868e96, 0x1c7ed6, 0x2f9e44, 0xf59f00];
 
@@ -37,6 +51,8 @@ function makeMesh(kind: VehicleKind, index: number): THREE.Group {
       return createTrotroMesh();
     case "bus":
       return createBusMesh();
+    case "okada":
+      return createOkadaMesh(index);
     default: {
       const neverKind: never = kind;
       return neverKind;
@@ -54,6 +70,8 @@ function cruiseFor(kind: VehicleKind): number {
       return 6.5 + Math.random() * 2.4;
     case "bus":
       return 7 + Math.random() * 2.2;
+    case "okada":
+      return 10 + Math.random() * 3.5;
     default: {
       const neverKind: never = kind;
       return neverKind;
@@ -65,6 +83,8 @@ export class TrafficSystem {
   private vehicles: Vehicle[] = [];
   private spawnTimer = 0;
   private readonly target: number;
+  /** Called when a held-up driver leans on the horn; argument is metres from the rider. */
+  onHonk: ((distance: number) => void) | null = null;
 
   constructor(
     private graph: RoadGraph | null,
@@ -72,12 +92,12 @@ export class TrafficSystem {
     private parent: THREE.Group,
     mobile: boolean,
   ) {
-    this.target = mobile ? 6 : 12;
+    this.target = mobile ? 10 : 22;
   }
 
   start(): void {
     if (!this.graph || this.vehicles.length > 0) return;
-    const mix: VehicleKind[] = ["car", "taxi", "trotro", "car", "taxi", "bus", "trotro", "car"];
+    const mix: VehicleKind[] = ["okada", "taxi", "car", "trotro", "okada", "taxi", "car", "bus", "okada", "trotro", "taxi"];
     for (let i = 0; i < this.target; i++) {
       const kind = mix[i % mix.length];
       const mesh = makeMesh(kind, i);
@@ -94,6 +114,7 @@ export class TrafficSystem {
       this.vehicles.push({
         mesh, kind, wheels, brake, active: false, stopped: 0, speed: 0, cruise: cruiseFor(kind),
         ax: 0, az: 0, bx: 0, bz: 0, length: 1, traveled: 0, toId: "", highway: "",
+        lane: 0, yaw: 0, blocked: 0, sway: Math.random() * 10,
       });
     }
   }
@@ -142,20 +163,16 @@ export class TrafficSystem {
         minPlayer: 18,
       })) continue;
       if (this.vehicles.some(other => other.active && other !== vehicle && Math.hypot(other.mesh.position.x - x, other.mesh.position.z - z) < 12)) continue;
-      vehicle.ax = choice.ax;
-      vehicle.az = choice.az;
-      vehicle.bx = choice.bx;
-      vehicle.bz = choice.bz;
-      vehicle.length = length;
+      this.assignEdge(vehicle, choice, length);
       vehicle.traveled = t * length;
-      vehicle.toId = choice.edge.to;
-      vehicle.highway = choice.edge.highway;
       vehicle.speed = vehicle.cruise;
       vehicle.stopped = 0;
+      vehicle.blocked = 0;
       vehicle.active = true;
       vehicle.mesh.visible = true;
-      vehicle.mesh.position.set(x, 0, z);
-      vehicle.mesh.rotation.y = Math.atan2(choice.bx - choice.ax, choice.bz - choice.az);
+      vehicle.yaw = Math.atan2(choice.bx - choice.ax, choice.bz - choice.az);
+      vehicle.mesh.rotation.y = vehicle.yaw;
+      vehicle.mesh.position.set(x - Math.cos(vehicle.yaw) * vehicle.lane, 0, z + Math.sin(vehicle.yaw) * vehicle.lane);
       return true;
     }
     return false;
@@ -176,14 +193,16 @@ export class TrafficSystem {
       return;
     }
     let speed = vehicle.cruise;
+    let heldUp = false;
     const remaining = vehicle.length - vehicle.traveled;
     if (remaining < 12) speed *= 0.45 + 0.55 * Math.max(0.2, remaining / 12);
     const aheadX = playerX - vehicle.mesh.position.x;
     const aheadZ = playerZ - vehicle.mesh.position.z;
     const ahead = Math.hypot(aheadX, aheadZ);
-    if (ahead < 16 && ahead > 2) {
+    const playerLateral = Math.abs(aheadX * dirZ - aheadZ * dirX) / dirLen;
+    if (ahead < 16 && ahead > .05 && playerLateral < 2.2) {
       const dot = (aheadX * dirX + aheadZ * dirZ) / (ahead * dirLen);
-      if (dot > 0.45) speed *= Math.max(0.15, ahead / 16);
+      if (dot > 0.65) { speed *= Math.max(0, Math.min(1, (ahead - 3.2) / 12)); heldUp = speed < vehicle.cruise * 0.3; }
     }
     for (const other of this.vehicles) {
       if (!other.active || other === vehicle) continue;
@@ -191,9 +210,20 @@ export class TrafficSystem {
       const dz = other.mesh.position.z - vehicle.mesh.position.z;
       const gap = Math.hypot(dx, dz);
       if (gap > 9 || gap < 0.05) continue;
-      if ((dx * dirX + dz * dirZ) / (gap * dirLen) > 0.35) speed *= 0.4;
+      const lateral = Math.abs(dx*dirZ-dz*dirX)/dirLen;
+      const limit = vehicle.kind === "okada" ? 1.1 : 2.4;
+      if (lateral < limit && (dx * dirX + dz * dirZ) / (gap * dirLen) > .65) {
+        speed = Math.min(speed, Math.max(0, (gap - (vehicle.kind === "okada" ? 2.6 : 4.2)) * 1.4));
+        if (speed < vehicle.cruise * 0.3) heldUp = true;
+      }
     }
     vehicle.speed = speed;
+    vehicle.blocked = heldUp ? vehicle.blocked + dt : 0;
+    if (vehicle.blocked > 1.2 && Math.random() < dt * 0.6 && this.onHonk) {
+      const distance = Math.hypot(vehicle.mesh.position.x - playerX, vehicle.mesh.position.z - playerZ);
+      if (distance < 70) this.onHonk(distance);
+      vehicle.blocked = 0.4;
+    }
     vehicle.traveled += speed * dt;
     if (vehicle.traveled >= vehicle.length) {
       if (!this.turn(vehicle, dirX / dirLen, dirZ / dirLen)) {
@@ -208,8 +238,17 @@ export class TrafficSystem {
       this.park(vehicle);
       return;
     }
-    vehicle.mesh.position.set(x, 0, z);
-    vehicle.mesh.rotation.y = Math.atan2(vehicle.bx - vehicle.ax, vehicle.bz - vehicle.az);
+    const yaw = Math.atan2(vehicle.bx - vehicle.ax, vehicle.bz - vehicle.az);
+    let dy = yaw - vehicle.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    vehicle.yaw += dy * Math.min(1, dt * 6);
+    // Okadas weave a little within their lane.
+    vehicle.sway += dt;
+    const lane = vehicle.lane + (vehicle.kind === "okada" ? Math.sin(vehicle.sway * 0.9) * 0.45 : 0);
+    vehicle.mesh.position.set(x - Math.cos(yaw) * lane, 0, z + Math.sin(yaw) * lane);
+    vehicle.mesh.rotation.y = vehicle.yaw;
+    if (vehicle.kind === "okada") vehicle.mesh.rotation.z = THREE.MathUtils.clamp(-dy * 0.6, -0.3, 0.3);
     for (const wheel of vehicle.wheels) wheel.rotation.x += speed * dt * 2.2;
     this.paintBrake(vehicle, speed < vehicle.cruise * 0.65);
   }
@@ -229,15 +268,22 @@ export class TrafficSystem {
     const length = Math.hypot(choice.bx - choice.ax, choice.bz - choice.az);
     if (length < 2) return false;
     const overflow = vehicle.traveled - vehicle.length;
+    this.assignEdge(vehicle, choice, length);
+    vehicle.traveled = Math.min(length * 0.5, Math.max(0, overflow));
+    return true;
+  }
+
+  private assignEdge(vehicle: Vehicle, choice: Departure, length: number): void {
     vehicle.ax = choice.ax;
     vehicle.az = choice.az;
     vehicle.bx = choice.bx;
     vehicle.bz = choice.bz;
     vehicle.length = length;
-    vehicle.traveled = Math.min(length * 0.5, Math.max(0, overflow));
     vehicle.toId = choice.edge.to;
     vehicle.highway = choice.edge.highway;
-    return true;
+    const twoWay = this.graph?.departures(choice.edge.to).some(option => option.edge.to === choice.edge.from) ?? true;
+    // Okadas hug the kerb side of the lane; big vehicles sit in the middle of it.
+    vehicle.lane = twoWay ? laneFor(choice.edge.highway) * (vehicle.kind === "okada" ? 1.35 : 1) : (vehicle.kind === "okada" ? 1 : 0);
   }
 
   private paintBrake(vehicle: Vehicle, on: boolean): void {

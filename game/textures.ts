@@ -113,18 +113,18 @@ export function asphaltTexture(): THREE.CanvasTexture {
     g.stroke();
   }
   // Tar patches
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 3; i++) {
     const x = Math.random() * 400 + 56, y = Math.random() * 400 + 56;
-    g.fillStyle = "rgba(18,18,20,0.6)";
+    g.fillStyle = "rgba(24,24,27,0.28)";
     g.beginPath();
-    g.ellipse(x, y, 30 + Math.random() * 40, 20 + Math.random() * 30, Math.random() * 3, 0, Math.PI * 2);
+    g.ellipse(x, y, 22 + Math.random() * 30, 12 + Math.random() * 18, Math.random() * 3, 0, Math.PI * 2);
     g.fill();
   }
   // Oil stains
   for (let i = 0; i < 4; i++) {
     const x = Math.random() * 400 + 56, y = Math.random() * 400 + 56;
     const grd = g.createRadialGradient(x, y, 0, x, y, 20 + Math.random() * 30);
-    grd.addColorStop(0, "rgba(15,12,18,0.5)");
+    grd.addColorStop(0, "rgba(15,12,18,0.3)");
     grd.addColorStop(1, "transparent");
     g.fillStyle = grd;
     g.fillRect(x - 50, y - 50, 100, 100);
@@ -194,6 +194,49 @@ export function grassTexture(): THREE.CanvasTexture {
     g.fillRect(x - 45, y - 45, 90, 90);
   }
   const t = toTexture(c, 8);
+  cache.set(key, t);
+  return t;
+}
+
+/** Sun-baked Accra verge: laterite earth with clumps of dry and green grass. */
+export function accraGroundTexture(): THREE.CanvasTexture {
+  const key = "accra-ground";
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const S = 512;
+  const [c, g] = makeCanvas(S, S);
+  g.fillStyle = "#9a7652";
+  g.fillRect(0, 0, S, S);
+  // Mottled earth tones (wrap-aware so the tile has no seams).
+  const blob = (x: number, y: number, r: number, fill: string | CanvasGradient) => {
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+      g.fillStyle = fill;
+      g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
+    }
+  };
+  for (let i = 0; i < 90; i++) {
+    const tone = Math.random() < 0.5 ? "rgba(122,82,52,0.22)" : "rgba(176,140,98,0.20)";
+    blob(Math.random() * S, Math.random() * S, 18 + Math.random() * 46, tone);
+  }
+  // Grass tufts: mostly dry straw with some green, clustered.
+  for (let k = 0; k < 26; k++) {
+    const cx = Math.random() * S, cy = Math.random() * S, spread = 30 + Math.random() * 60;
+    const green = Math.random() < 0.45;
+    for (let i = 0; i < 260; i++) {
+      const x = (cx + (Math.random() - 0.5) * spread * 2 + S) % S;
+      const y = (cy + (Math.random() - 0.5) * spread * 2 + S) % S;
+      const hue = green ? 70 + Math.random() * 35 : 38 + Math.random() * 14;
+      g.fillStyle = `hsla(${hue},${green ? 32 : 38}%,${green ? 30 + Math.random() * 14 : 46 + Math.random() * 16}%,0.85)`;
+      g.fillRect(x, y, 1.4, 2.5 + Math.random() * 2);
+    }
+  }
+  // Gravel speckle.
+  for (let i = 0; i < 5000; i++) {
+    const v = Math.random();
+    g.fillStyle = v < 0.5 ? "rgba(70,48,32,0.35)" : "rgba(214,186,150,0.35)";
+    g.fillRect(Math.random() * S, Math.random() * S, 1.2, 1.2);
+  }
+  const t = toTexture(c, 1);
   cache.set(key, t);
   return t;
 }

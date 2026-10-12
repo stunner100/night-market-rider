@@ -1,9 +1,14 @@
 import { formatMetres, remainingPolylineMetres } from "./distance";
 import type { WorldPoint } from "./types";
 
+export type Maneuver = "left" | "right" | "straight" | "uturn" | "arrive";
+
 export interface RouteCue {
   text: string;
   remaining: number;
+  maneuver: Maneuver;
+  /** Metres until the maneuver (0 when it applies now). */
+  turnIn: number;
 }
 
 function wrap(angle: number): number {
@@ -26,7 +31,7 @@ function turnText(delta: number, metres: number): string {
  * Positive heading change matches the bike: left increases heading.
  */
 export function cueFromRoute(route: WorldPoint[], x: number, z: number, heading: number): RouteCue {
-  if (route.length < 2) return { text: "", remaining: 0 };
+  if (route.length < 2) return { text: "", remaining: 0, maneuver: "straight", turnIn: 0 };
   let bestI = 0;
   let bestT = 0;
   let bestD = Infinity;
@@ -44,11 +49,14 @@ export function cueFromRoute(route: WorldPoint[], x: number, z: number, heading:
   }
 
   const remaining = remainingPolylineMetres(route, x, z);
-  if (remaining < 28) return { text: "DESTINATION AHEAD", remaining };
+  if (remaining < 28) return { text: "DESTINATION AHEAD", remaining, maneuver: "arrive", turnIn: remaining };
 
   const a = route[bestI];
   const b = route[bestI + 1];
   const routeHeading = Math.atan2(b.x - a.x, b.z - a.z);
+  // Riding away from the route: say so before anything else.
+  const facing = wrap(routeHeading - heading);
+  if (Math.abs(facing) > 2.3) return { text: "↩ MAKE A U-TURN", remaining, maneuver: "uturn", turnIn: 0 };
   let prevHeading = routeHeading;
   let distToCorner = Math.hypot(b.x - a.x, b.z - a.z) * (1 - bestT);
 
@@ -63,7 +71,7 @@ export function cueFromRoute(route: WorldPoint[], x: number, z: number, heading:
     const nextHeading = Math.atan2(next.x - prev.x, next.z - prev.z);
     const delta = wrap(nextHeading - prevHeading);
     if (Math.abs(delta) > 0.5 && distToCorner < 180) {
-      return { text: turnText(delta, distToCorner), remaining };
+      return { text: turnText(delta, distToCorner), remaining, maneuver: delta > 0 ? "left" : "right", turnIn: distToCorner };
     }
     prevHeading = nextHeading;
     distToCorner += step;
@@ -71,6 +79,6 @@ export function cueFromRoute(route: WorldPoint[], x: number, z: number, heading:
   }
 
   const align = wrap(routeHeading - heading);
-  if (Math.abs(align) > 0.75) return { text: turnText(align, Math.min(40, remaining)), remaining };
-  return { text: `CONTINUE ${formatMetres(remaining)}`, remaining };
+  if (Math.abs(align) > 0.75) return { text: turnText(align, Math.min(40, remaining)), remaining, maneuver: align > 0 ? "left" : "right", turnIn: 0 };
+  return { text: `CONTINUE ${formatMetres(remaining)}`, remaining, maneuver: "straight", turnIn: remaining };
 }

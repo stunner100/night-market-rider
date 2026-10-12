@@ -100,7 +100,7 @@ export function applyVisualQuality(engine: Engine) {
     }
   }
 
-  if (scene.fog instanceof THREE.FogExp2) scene.fog.density = mobile ? 0.0072 : 0.0061;
+  if (scene.fog instanceof THREE.FogExp2) scene.fog.density = mobile ? 0.0032 : 0.0026;
 
   // Extend the existing day/night function rather than creating another render
   // loop. Exposure rises slightly at night while atmospheric haze deepens.
@@ -109,8 +109,8 @@ export function applyVisualQuality(engine: Engine) {
     originalApplySky(night);
     renderer.toneMappingExposure = (mobile ? 1.04 : 1.08) + night * 0.16;
     if (scene.fog instanceof THREE.FogExp2) {
-      const dayFog = mobile ? 0.0072 : 0.0061;
-      scene.fog.density = dayFog + night * 0.0014;
+      const dayFog = mobile ? 0.0032 : 0.0026;
+      scene.fog.density = dayFog + night * 0.0008;
     }
   };
 

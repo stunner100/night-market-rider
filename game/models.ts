@@ -71,6 +71,38 @@ export function createBusMesh(): THREE.Group {
   lamps(g, 3.88, -3.88, 1.08, .73); brake(g, -3.9, 1.28, 1.42); for (const [x, z] of [[-1.16, 2.55], [1.16, 2.55], [-1.16, -2.55], [1.16, -2.55]] as const) wheel(g, x, z, .48, dark, chrome); return g;
 }
 
+const OKADA_SHIRTS = [0xd94d3f, 0x2664a3, 0x1e8b65, 0xf28c35, 0xe8e7df, 0x7b3f91, 0x252a2f];
+const OKADA_BIKES = [0xb3261e, 0x1c3f8c, 0x111315, 0xe8e7df, 0x2f6b3a];
+
+/** Okada: the motorbike taxis that weave through Accra traffic, sometimes with a passenger. */
+export function createOkadaMesh(index = 0): THREE.Group {
+  const g = new THREE.Group(); g.name = "Okada";
+  const frame = paint(OKADA_BIKES[index % OKADA_BIKES.length]); const dark = pbr(0x15171a, .8, .15); const chrome = pbr(0xdfe3e6, .18, .9);
+  const skin = pbr([0x5b3828, 0x6f4530, 0x82533a][index % 3], .7); const shirt = pbr(OKADA_SHIRTS[index % OKADA_SHIRTS.length], .8); const trousers = pbr(0x24262a, .85);
+  for (const z of [-.66, .66]) {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(.31, .31, .12, 16), dark); t.rotation.z = Math.PI / 2; t.position.set(0, .31, z); t.castShadow = true; t.name = "wheel"; g.add(t);
+  }
+  g.add(box(.26, .34, 1.05, frame, 0, .62, .02, .1), box(.34, .26, .5, frame, 0, .86, .3, .1), box(.3, .12, .78, dark, 0, .9, -.28, .05), box(.22, .08, .5, chrome, .14, .42, -.38, .03));
+  const fork = box(.07, .72, .07, chrome, 0, .7, .66, .02); fork.rotation.x = -.35; g.add(fork, box(.78, .045, .045, chrome, 0, 1.08, .55, .02));
+  g.add(box(.2, .16, .12, new THREE.MeshStandardMaterial({ color: 0xfff2bf, emissive: 0xffd17a, emissiveIntensity: .5 }), 0, .95, .72, .04));
+  brake(g, -.7, .78, .16);
+  const rider = (z: number, y: number, top: THREE.Material, lean: number) => {
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(.17, .38, 3, 8), top); torso.position.set(0, y + .38, z); torso.rotation.x = lean; torso.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.13, 10, 8), skin); head.position.set(0, y + .8, z + lean * .4);
+    g.add(torso, head);
+    for (const sx of [-1, 1]) {
+      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(.07, .34, 3, 6), trousers); thigh.rotation.x = Math.PI / 2.3; thigh.position.set(sx * .15, y + .06, z + .2); g.add(thigh);
+      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(.06, .32, 3, 6), trousers); shin.position.set(sx * .17, y - .2, z + .38); g.add(shin);
+    }
+    return head;
+  };
+  const head = rider(-.18, .82, shirt, .28);
+  for (const sx of [-1, 1]) { const arm = new THREE.Mesh(new THREE.CapsuleGeometry(.05, .42, 3, 6), shirt); arm.rotation.x = Math.PI / 2.6; arm.position.set(sx * .27, 1.2, .2); g.add(arm); }
+  if (index % 3 === 0) { const cap = new THREE.Mesh(new THREE.SphereGeometry(.15, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), pbr(0x111315, .3, .2)); cap.position.copy(head.position); g.add(cap); }
+  if (index % 2 === 1) rider(-.58, .86, pbr(OKADA_SHIRTS[(index + 3) % OKADA_SHIRTS.length], .8), .12);
+  return g;
+}
+
 function facade(g: THREE.Group, width: number, floors: number, cols: number, frontZ: number, y0: number, stepY: number) {
   const trim = pbr(0x404850, .55, .12), win = glass(0x26394a, .8); const usable = width - 1.3, dx = usable / cols;
   for (let f = 0; f < floors; f++) for (let c = 0; c < cols; c++) { const x = -usable / 2 + dx * (c + .5), y = y0 + f * stepY; g.add(box(dx * .62, .94, .08, trim, x, y, frontZ, .02), box(dx * .54, .79, .1, win, x, y, frontZ + .03, .02)); }

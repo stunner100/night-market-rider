@@ -7,8 +7,10 @@ export function isMajorRoad(highway: string): boolean {
   return MAJOR.has(highway);
 }
 
-export function allowsVehicle(kind: "car" | "taxi" | "trotro" | "bus", highway: string): boolean {
+export function allowsVehicle(kind: "car" | "taxi" | "trotro" | "bus" | "okada", highway: string): boolean {
   switch (kind) {
+    case "okada":
+      return highway !== "motorway";
     case "bus":
       return BIG_VEHICLE.has(highway);
     case "trotro":

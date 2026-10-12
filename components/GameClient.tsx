@@ -5,7 +5,9 @@ import { applyVisualQuality } from "@/game/visual-quality";
 import { useGame } from "@/game/store";
 import UI from "./UI";
 
-export let engineRef: { current: Engine | null } = { current: null };
+// Keep the reference stable across Fast Refresh module replacements.
+const clientScope = globalThis as unknown as { __nmEngineRef?: { current: Engine | null } };
+export const engineRef = clientScope.__nmEngineRef ??= { current: null };
 
 export default function GameClient() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -25,16 +27,15 @@ export default function GameClient() {
         engine = new Engine(canvasRef.current);
         disposeVisualQuality = applyVisualQuality(engine);
         engineRef.current = engine;
+        // Development-only inspection hook for repeatable gameplay verification.
+        if (process.env.NODE_ENV === 'development') {
+          (window as unknown as { __nm?: unknown }).__nm = { engine, store: useGame };
+        }
 
         // The legacy procedural-world helper produced a giant floor arrow after
         // the real Accra map was enabled. Route guidance now comes from the
         // smaller road-following chevrons instead.
         engine.world.arrowHelper.visible = false;
-
-        // The old stylized sky texture reads like giant flat circles against the
-        // much more grounded OSM city. Keep the dynamic sky color/fog, but remove
-        // that texture layer for a cleaner horizon.
-        if (engine.skyDome) engine.skyDome.visible = false;
 
         setProgress(100);
         setTimeout(() => {
@@ -56,6 +57,7 @@ export default function GameClient() {
       disposeVisualQuality?.();
       engine?.dispose();
       engineRef.current = null;
+      if (process.env.NODE_ENV === "development") delete (window as unknown as { __nm?: unknown }).__nm;
     };
   }, []);
 

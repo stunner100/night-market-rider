@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatMetres, formatWorldDistance, polylineLength, remainingPolylineMetres } from "./distance";
 import { CORRIDOR_FUEL, CRUISE_FUEL_PER_SECOND, missingFuelAnchors } from "./fuel-stations";
-import { visibleFuel } from "./minimap-data";
+import { visibleFuel, buildMinimapFrame } from "./minimap-data";
 import { allowsPothole, planHazards, type RoadSample } from "./hazard-placement";
 import { cueFromRoute } from "./navigation";
 import { pickContinuation } from "./road-follow";
@@ -43,6 +43,18 @@ test("turn cues come from the upcoming road geometry", () => {
 
   const close = cueFromRoute(straightRoad, 0, 380, 0);
   assert.equal(close.text, "DESTINATION AHEAD");
+  assert.equal(close.maneuver, "arrive");
+});
+
+test("cues expose the maneuver and ask for a U-turn when riding away", () => {
+  const route = [{ x: 0, z: 0 }, { x: 0, z: 100 }, { x: 80, z: 100 }];
+  const turn = cueFromRoute(route, 0, 20, 0);
+  assert.equal(turn.maneuver, "left");
+  assert.equal(Math.round(turn.turnIn), 80);
+
+  const away = cueFromRoute(route, 0, 20, Math.PI);
+  assert.equal(away.maneuver, "uturn");
+  assert.equal(away.text, "↩ MAKE A U-TURN");
 });
 
 test("roadside placement sits off the carriageway", () => {
@@ -150,4 +162,11 @@ test("traffic prefers the straight continuation", () => {
     { dirX: 1, dirZ: 0 },
   ], 0, 1, 0);
   assert.equal(index, 0);
+});
+
+test('minimap retains roads crossing the view and does not shortcut the route', () => {
+  const route = [{x:0,z:0},{x:300,z:0},{x:300,z:300},{x:0,z:10}];
+  const frame = buildMinimapFrame({px:0,pz:0,roads:[{id:'crossing',highway:'primary',width:10,points:[{x:-300,z:0},{x:300,z:0}]}],route,pickup:null,drop:null,fuel:[],landmarks:[]});
+  assert.equal(frame.roads.length,1);
+  assert.deepEqual(frame.route,route);
 });

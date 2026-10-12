@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { asphaltTexture, lateriteShoulderTexture, sidewalkTexture } from "../textures";
 import type { WorldRoad } from "./types";
 
 const ROAD_COLORS: Record<string, number> = {
@@ -26,7 +27,8 @@ const CURBED = new Set(["primary", "secondary", "tertiary", "unclassified", "res
 
 function roadMaterial(highway: string): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
-    color: ROAD_COLORS[highway] ?? 0x41454a,
+    color: PAVED.has(highway) ? 0xb6b4ae : ROAD_COLORS[highway] ?? 0x41454a,
+    map: PAVED.has(highway) ? asphaltTexture() : null,
     roughness: highway === "track" ? 0.98 : 0.88,
     metalness: 0.015,
     side: THREE.DoubleSide,
@@ -65,6 +67,7 @@ function segmentGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex([0, 2, 1, 2, 3, 1]);
+  geometry.setAttribute("uv",new THREE.Float32BufferAttribute([ax/18,az/18,ax/18+width/18,az/18,bx/18,bz/18,bx/18+width/18,bz/18],2));
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -106,6 +109,8 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
   const shoulderGeometries: THREE.BufferGeometry[] = [];
   const centerLineGeometries: THREE.BufferGeometry[] = [];
   const curbGeometries: THREE.BufferGeometry[] = [];
+  const sidewalkGeometries: THREE.BufferGeometry[] = [];
+  const drainGeometries: THREE.BufferGeometry[] = [];
 
   for (const road of roads) {
     const width = Math.max(1.5, road.width * (mobile ? 0.98 : 1));
@@ -124,16 +129,21 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
       const geo = segmentGeometry(a.x, a.z, b.x, b.z, width, paved ? 0.064 : 0.052);
       if (geo) geometries.push(geo);
 
-      if (!mobile && MARKED.has(road.highway) && width >= 5.4) {
+      if (MARKED.has(road.highway) && width >= 5.4) {
         pushDashedCenterLine(centerLineGeometries, a.x, a.z, b.x, b.z);
       }
 
-      if (!mobile && CURBED.has(road.highway) && width >= 4.2) {
+      if (CURBED.has(road.highway) && width >= 4.2) {
         const edgeOffset = width * 0.5 + 0.16;
         const left = segmentGeometry(a.x, a.z, b.x, b.z, 0.24, 0.105, edgeOffset);
         const right = segmentGeometry(a.x, a.z, b.x, b.z, 0.24, 0.105, -edgeOffset);
         if (left) curbGeometries.push(left);
         if (right) curbGeometries.push(right);
+        // Narrow concrete walking strip with an open storm drain at the road edge.
+        for(const side of [-1,1]){
+          const walk=segmentGeometry(a.x,a.z,b.x,b.z,1.1,.075,side*(width*.5+1.1));if(walk)sidewalkGeometries.push(walk);
+          const drain=segmentGeometry(a.x,a.z,b.x,b.z,.32,.055,side*(width*.5+.4));if(drain)drainGeometries.push(drain);
+        }
       }
     }
     if (geometries.length) byClass.set(road.highway, geometries);
@@ -145,7 +155,7 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
     if (merged) {
       const shoulders = new THREE.Mesh(
         merged,
-        new THREE.MeshStandardMaterial({ color: 0x6f6659, roughness: 0.98, metalness: 0, side: THREE.DoubleSide }),
+        new THREE.MeshStandardMaterial({ color: 0xd5ab82, map: lateriteShoulderTexture(), roughness: 0.98, metalness: 0, side: THREE.DoubleSide }),
       );
       shoulders.receiveShadow = true;
       shoulders.name = "road-shoulders";
@@ -190,6 +200,11 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
     }
   }
 
+  for(const [geos,color,map] of [[sidewalkGeometries,0xc1b9a3,sidewalkTexture()],[drainGeometries,0x343d35,null]] as const){
+    if(!geos.length)continue;
+    const merged=mergeGeometries(geos,false);geos.forEach(g=>g.dispose());
+    if(merged){const mesh=new THREE.Mesh(merged,new THREE.MeshStandardMaterial({color,map,roughness:.95,side:THREE.DoubleSide}));mesh.receiveShadow=true;group.add(mesh);}
+  }
   return group;
 }
 

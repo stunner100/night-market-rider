@@ -44,7 +44,7 @@ function addFromRoad(road: WorldRoad, out: PersonPlacement[], limit: number, mob
     const len = Math.hypot(dx, dz);
     if (len < 14) continue;
     const seed = hash(`${road.id}:${i}:person`);
-    if (random(seed ^ 0x7341) < (mobile ? 0.68 : 0.48)) continue;
+    if (random(seed ^ 0x7341) < (mobile ? 0.6 : 0.32)) continue;
     const t = 0.18 + random(seed ^ 0xa311) * 0.64;
     const nx = -dz / len;
     const nz = dx / len;
@@ -57,6 +57,17 @@ function addFromRoad(road: WorldRoad, out: PersonPlacement[], limit: number, mob
       seed,
       scale: 0.9 + random(seed ^ 0x1d13) * 0.22,
     });
+    // Small roadside groups chatting, waiting for a trotro or buying from a stall.
+    const px = a.x + dx * t + nx * offset * side;
+    const pz = a.z + dz * t + nz * offset * side;
+    const group = random(seed ^ 0x3c19) < 0.45 ? 1 + Math.floor(random(seed ^ 0x52d7) * 2) : 0;
+    for (let k = 0; k < group && out.length < limit; k++) {
+      const ks = seed ^ (0x9e3779 * (k + 1));
+      const angle = random(ks) * Math.PI * 2;
+      const qx = px + Math.cos(angle) * 0.85;
+      const qz = pz + Math.sin(angle) * 0.85;
+      out.push({ x: qx, z: qz, yaw: Math.atan2(px - qx, pz - qz), seed: ks, scale: 0.88 + random(ks ^ 0x77) * 0.24 });
+    }
   }
 }
 
@@ -75,7 +86,6 @@ function makeInstances(
     color: 0xffffff,
     roughness: 0.78,
     metalness: 0.01,
-    vertexColors: true,
   });
   const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
   const dummy = new THREE.Object3D();
@@ -96,7 +106,7 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
   const group = new THREE.Group();
   group.name = "osm-people";
   const placements: PersonPlacement[] = [];
-  const limit = mobile ? 10 : 24;
+  const limit = mobile ? 18 : 48;
 
   // Put people around actual mapped amenities first so the world feels inhabited
   // at banks, shops, restaurants, university facilities and other POIs.
@@ -128,44 +138,26 @@ export function buildPeopleGroup(chunk: WorldChunk, mobile = false): THREE.Group
     addFromRoad(road, placements, limit, mobile);
   }
 
-  const legs = makeInstances(
-    new THREE.BoxGeometry(0.52, 0.86, 0.34),
-    placements,
-    TROUSERS,
-    (d, p) => {
-      d.position.set(p.x, 0.49 * p.scale, p.z);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(p.scale, p.scale, p.scale);
-    },
-    mobile,
-  );
-  if (legs) { legs.name = "accra-people-legs"; group.add(legs); }
-
-  const torsos = makeInstances(
-    new THREE.BoxGeometry(0.72, 0.92, 0.42),
-    placements,
-    SHIRTS,
-    (d, p) => {
-      d.position.set(p.x, 1.34 * p.scale, p.z);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(p.scale, p.scale, p.scale);
-    },
-    mobile,
-  );
-  if (torsos) { torsos.name = "accra-people-torsos"; group.add(torsos); }
-
-  const heads = makeInstances(
-    new THREE.SphereGeometry(0.28, 8, 6),
-    placements,
-    SKIN,
-    (d, p) => {
-      d.position.set(p.x, 2.04 * p.scale, p.z);
-      d.rotation.set(0, p.yaw, 0);
-      d.scale.set(p.scale, p.scale, p.scale);
-    },
-    mobile,
-  );
-  if (heads) { heads.name = "accra-people-heads"; group.add(heads); }
+  // Instanced anatomically proportioned silhouettes, with separate limbs.
+  const parts: Array<{geo:THREE.BufferGeometry; colors:readonly number[]; x:number;y:number;z:number; sx?:number;sy?:number;sz?:number}> = [
+    {geo:new THREE.CapsuleGeometry(.19,.32,3,8),colors:SHIRTS,x:0,y:1.18,z:0,sx:1.2,sz:.65},
+    {geo:new THREE.SphereGeometry(.14,8,6),colors:SKIN,x:0,y:1.65,z:0,sy:1.22,sz:.92},
+    {geo:new THREE.SphereGeometry(.145,8,6),colors:[0x211b16,0x171511,0x31221b],x:0,y:1.73,z:-.025,sy:.6},
+  ];
+  for(const side of [-1,1]) {
+    parts.push({geo:new THREE.CapsuleGeometry(.082,.63,3,6),colors:TROUSERS,x:side*.105,y:.49,z:0});
+    parts.push({geo:new THREE.CapsuleGeometry(.057,.43,3,6),colors:SKIN,x:side*.29,y:1.08,z:.01});
+    parts.push({geo:new THREE.CapsuleGeometry(.075,.15,3,6),colors:SHIRTS,x:side*.26,y:1.29,z:0});
+    parts.push({geo:new THREE.SphereGeometry(.09,6,4),colors:[0x242521],x:side*.105,y:.08,z:.05,sy:.65,sz:1.5});
+  }
+  for(const part of parts){
+    const mesh=makeInstances(part.geo,placements,part.colors,(d,p)=>{
+      const x=part.x*p.scale,z=part.z*p.scale;
+      d.position.set(p.x+Math.cos(p.yaw)*x+Math.sin(p.yaw)*z,part.y*p.scale,p.z-Math.sin(p.yaw)*x+Math.cos(p.yaw)*z);
+      d.rotation.set(0,p.yaw,0);d.scale.set(p.scale*(part.sx??1),p.scale*(part.sy??1),p.scale*(part.sz??1));
+    },mobile);
+    if(mesh)group.add(mesh);
+  }
 
   return group;
 }

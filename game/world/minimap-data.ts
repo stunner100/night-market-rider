@@ -1,3 +1,4 @@
+import { distancePointToSegment } from "./coordinates";
 import type { WorldPoint, WorldRoad } from "./types";
 
 export interface MinimapSegment {
@@ -59,14 +60,12 @@ export function buildMinimapFrame(input: {
     for (let i = 0; i < road.points.length - 1; i++) {
       const a = road.points[i];
       const b = road.points[i + 1];
-      if (!near(a.x, a.z, input.px, input.pz, reach) && !near(b.x, b.z, input.px, input.pz, reach)) continue;
+      if (distancePointToSegment(input.px,input.pz,a.x,a.z,b.x,b.z)>reach) continue;
       roads.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, highway: road.highway });
     }
   }
-  const route = input.route.filter((point, index) => {
-    if (index === 0 || index === input.route.length - 1) return near(point.x, point.z, input.px, input.pz, reach);
-    return near(point.x, point.z, input.px, input.pz, reach);
-  });
+  // The canvas clips the complete polyline; filtering vertices invents shortcuts.
+  const route = input.route;
   const landmarks = input.landmarks
     .map(mark => ({ ...mark, dist: Math.hypot(mark.x - input.px, mark.z - input.pz) }))
     .filter(mark => mark.dist <= radius)

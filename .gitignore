@@ -16,3 +16,4 @@ playwright-report/
 # misc
 .DS_Store
 *.log
+.vercel

@@ -17,7 +17,31 @@ interface Walker extends WalkerBody {
 }
 
 const HAIR: HairStyle[] = ["afro", "short", "wrap", "cap", "bald"];
-const SHIRTS = [0xe67700, 0x1971c2, 0xd6336c, 0x2f9e44, 0xf2e35c, 0xe9ecef];
+const SHIRTS = [0xe67700, 0x1971c2, 0xd6336c, 0x2f9e44, 0xf2e35c, 0xe9ecef, 0x7b3f91, 0xc92a2a];
+const GOODS = [0xf28c35, 0xf2e35c, 0x2f9e44, 0xd94d3f, 0xe9ecef];
+
+/** Street hawker's head-load: an aluminium basin piled with goods. */
+function headLoad(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "head-load";
+  const basin = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.2, 0.12, 14),
+    new THREE.MeshStandardMaterial({ color: 0xc9ced3, roughness: 0.35, metalness: 0.7 }),
+  );
+  basin.castShadow = true;
+  g.add(basin);
+  const goods = new THREE.MeshStandardMaterial({ color: GOODS[seed % GOODS.length], roughness: 0.6 });
+  const fruit = new THREE.SphereGeometry(0.075, 8, 6);
+  for (let i = 0; i < 7; i++) {
+    const m = new THREE.Mesh(fruit, goods);
+    const a = (i / 6) * Math.PI * 2;
+    const r = i === 0 ? 0 : 0.15;
+    m.position.set(Math.cos(a) * r, 0.1 + (i === 0 ? 0.07 : 0), Math.sin(a) * r);
+    g.add(m);
+  }
+  g.position.y = 0.37;
+  return g;
+}
 
 function frameFromSegment(road: WorldRoad, index: number): RoadFrame | null {
   const a = road.points[index];
@@ -51,9 +75,9 @@ export class ActivePedestrians {
   constructor(
     private runtime: AccraWorldRuntime,
     private parent: THREE.Group,
-    mobile: boolean,
+    private mobile: boolean,
   ) {
-    this.target = mobile ? 4 : 8;
+    this.target = mobile ? 8 : 20;
   }
 
   start(): void {
@@ -67,8 +91,12 @@ export class ActivePedestrians {
         scale: 0.94 + (i % 4) * 0.02,
         bulk: 0.95,
         feminine: i % 3 === 0,
-        detail: this.target <= 4 ? "simple" : "full",
+        detail: this.mobile || i >= 10 ? "simple" : "full",
       });
+      // Low-detail extras skip the shadow pass to keep busy streets affordable.
+      if (this.mobile || i >= 10) rig.group.traverse(o => { o.castShadow = false; });
+      // Roughly one in three walkers is a hawker carrying goods on the head.
+      if (i % 3 === 1) rig.head.add(headLoad(i));
       rig.group.visible = false;
       this.parent.add(rig.group);
       this.walkers.push({
@@ -107,7 +135,7 @@ export class ActivePedestrians {
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = 0.45;
+    this.spawnTimer = 0.2;
     for (const walker of this.walkers) {
       if (walker.active) continue;
       if (this.place(walker, playerX, playerZ)) break;
@@ -117,10 +145,16 @@ export class ActivePedestrians {
   private place(walker: Walker, playerX: number, playerZ: number): boolean {
     const roads = this.runtime.visibleRoads(playerX, playerZ, 1);
     if (roads.length === 0) return false;
+    const byId = new Map(roads.map(road => [road.id, road]));
     for (let attempt = 0; attempt < 6; attempt++) {
-      const road = roads[Math.floor(Math.random() * roads.length)];
-      if (road.points.length < 2 || isMajorRoad(road.highway)) continue;
-      const index = Math.floor(Math.random() * (road.points.length - 1));
+      // Sample near the rider: walkers further than the despawn radius would
+      // vanish immediately and leave the streets empty.
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 18 + Math.random() * 50;
+      const near = this.runtime.nearestRoadFrame(playerX + Math.sin(angle) * radius, playerZ + Math.cos(angle) * radius, 30);
+      const road = near ? byId.get(near.roadId) : undefined;
+      if (!near || !road || road.points.length < 2) continue;
+      const index = Math.min(near.segmentIndex, road.points.length - 2);
       const frame = frameFromSegment(road, index);
       if (!frame) continue;
       for (const side of [1, -1] as const) {
@@ -153,14 +187,20 @@ export class ActivePedestrians {
   }
 
   private sidewalkPath(road: WorldRoad, index: number, side: 1 | -1): WorldPoint[] {
+    // Walk along segment endpoints (not just midpoints) so even the short
+    // two-point road pieces in the baked map give a usable sidewalk.
     const path: WorldPoint[] = [];
     const end = Math.min(road.points.length - 1, index + 5);
+    const offset = Math.max(2.6, road.width || 3.2) * 0.5 + 1.5;
     for (let i = index; i < end; i++) {
-      const frame = frameFromSegment(road, i);
-      if (!frame) continue;
-      const spot = offsetSide(frame, side, 1.5);
-      if (this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) continue;
-      path.push(spot);
+      const a = road.points[i], b = road.points[i + 1];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 3) continue;
+      const nx = -(b.z - a.z) / len * side * offset, nz = (b.x - a.x) / len * side * offset;
+      for (const t of i === index ? [0.08, 0.92] : [0.92]) {
+        const spot = { x: a.x + (b.x - a.x) * t + nx, z: a.z + (b.z - a.z) * t + nz };
+        if (!this.runtime.collidesBuilding(spot.x, spot.z, 0.4)) path.push(spot);
+      }
     }
     return path;
   }
@@ -192,7 +232,7 @@ export class ActivePedestrians {
     walker.mesh.position.x += (dx / dist) * step;
     walker.mesh.position.z += (dz / dist) * step;
     walker.mesh.rotation.y = Math.atan2(dx, dz);
-    animateWalk(walker.rig, elapsed + walker.seed, 3.2);
+    if ((Math.floor(elapsed*15)+Math.floor(walker.seed))%2===0) animateWalk(walker.rig, elapsed + walker.seed, 3.2);
     if (walker.index === 2 && walker.path.length > 3 && Math.random() < dt * 0.15) this.tryCross(walker);
   }
 

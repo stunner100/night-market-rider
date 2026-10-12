@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import { buildAccraBlock } from "./accra-block";
+import { buildDeliveryPlace } from "./delivery-place";
+import { pointInPolygon, distancePointToSegment } from "./coordinates";
+import { textTexture } from "../textures";
 import type { WorldChunk, WorldRoad } from "./types";
 
 const URBAN_ROADS = new Set([
@@ -276,7 +280,7 @@ function addKiosks(group: THREE.Group, chunk: WorldChunk, mobile: boolean): void
 
     const sign = new THREE.Mesh(
       new THREE.BoxGeometry(2.25, 0.52, 0.09),
-      new THREE.MeshBasicMaterial({ color: poi.tags?.shop ? 0x702963 : 0xf2e35c }),
+      new THREE.MeshBasicMaterial({ map: textTexture(poi.tags?.shop ? "PROVISIONS" : "MoMo • CASH", { bg: "#e3bd31", fg: "#14251b", font: 44 }) }),
     );
     sign.position.set(0, 2.7, 0.9);
     kiosk.add(sign);
@@ -329,6 +333,47 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
     }
   }
 
+  // Author a compact commercial frontage on otherwise empty roadside lots.
+  // Reject mapped footprints and roads; never fill the carriageway for density.
+  let frontage = 0;
+  const frontageLimit = mobile ? 8 : 14;
+  const occupied:{x:number;z:number}[]=[];
+  for (const road of chunk.roads) {
+    if (frontage >= frontageLimit || !URBAN_ROADS.has(road.highway) || road.width > 15) continue;
+    for (let i=0;i<road.points.length-1 && frontage<frontageLimit;i++) {
+      const a=road.points[i],b=road.points[i+1],len=Math.hypot(b.x-a.x,b.z-a.z);
+      if(len<35)continue;
+      const nx=-(b.z-a.z)/len,nz=(b.x-a.x)/len;
+      for(let distance=18;distance<len-16 && frontage<frontageLimit;distance+=30) {
+      for(const side of [1,-1]) {
+        if(frontage>=frontageLimit)break;
+        const x=a.x+(b.x-a.x)*distance/len+nx*side*(road.width/2+3.2),z=a.z+(b.z-a.z)*distance/len+nz*side*(road.width/2+3.2);
+        if(occupied.some(p=>Math.hypot(p.x-x,p.z-z)<24))continue;
+        const yaw=Math.atan2(-nx*side,-nz*side);
+        const samples=[[-8,-8],[8,-8],[-8,2],[8,2],[0,-3]].map(([lx,lz])=>({x:x+Math.cos(yaw)*lx+Math.sin(yaw)*lz,z:z-Math.sin(yaw)*lx+Math.cos(yaw)*lz}));
+        if(samples.some(p=>chunk.buildings.some(building=>pointInPolygon(p.x,p.z,building.footprint))))continue;
+        if(samples.some(p=>chunk.roads.some(r=>r.points.slice(1).some((b,j)=>distancePointToSegment(p.x,p.z,r.points[j].x,r.points[j].z,b.x,b.z)<r.width/2+.5))))continue;
+        const names=['LEGON NIGHT KITCHEN','AKWAABA CHOP BAR','MADINA PROVISIONS','SHIASHIE FOOD JOINT'];
+        const seed=hashString(chunk.key+road.id+i+":"+distance+":"+side);
+        const kit=frontage===0?buildDeliveryPlace(names[seed%names.length]):buildAccraBlock(seed);
+        kit.name='accra-commercial-frontage';kit.position.set(x,0,z);kit.rotation.y=yaw;group.add(kit);frontage++;occupied.push({x,z});
+      }
+    }
+  }
+  }
+  // Sagging utility wires share one line draw call per chunk.
+  if(poles.length>1){
+    const vertices:number[]=[];
+    for(let i=1;i<poles.length;i++){
+      const a=poles[i-1],b=poles[i];if(Math.hypot(b.x-a.x,b.z-a.z)>110)continue;
+      for(let j=0;j<8;j++){
+        for(const t of [j/8,(j+1)/8])vertices.push(a.x+(b.x-a.x)*t,6.65-Math.sin(t*Math.PI)*.6,a.z+(b.z-a.z)*t);
+      }
+    }
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+    group.add(new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:0x3e4140})));
+  }
+
   addTrees(group, trees, mobile);
   addPoles(group, poles, mobile);
   addStreetlights(group, lights, mobile);
@@ -342,7 +387,7 @@ export function disposeStreetDressingGroup(group: THREE.Group): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   group.traverse(obj => {
-    if (!(obj instanceof THREE.Mesh)) return;
+    if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.LineSegments)) return;
     geometries.add(obj.geometry);
     if (Array.isArray(obj.material)) obj.material.forEach(m => materials.add(m));
     else materials.add(obj.material);

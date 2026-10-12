@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { accraGroundTexture } from "../textures";
 import { buildRoadGroup, disposeRoadGroup } from "./road-renderer";
 import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
 import { buildStreetDressingGroup, disposeStreetDressingGroup } from "./street-dressing";
@@ -29,6 +30,10 @@ export class AccraWorldRuntime {
   private destroyed = false;
   private ground: THREE.Mesh;
   private landmarks: THREE.Group;
+  private detailAt=0;
+  private centerKey="";
+  private wanted = new Set<string>();
+  private streamAt = 0;
 
   constructor(private scene: THREE.Scene, private mobile = false, private baseUrl = "/world/accra") {
     this.group.name = "accra-osm-world";
@@ -36,7 +41,28 @@ export class AccraWorldRuntime {
 
     // Warmer, dustier tropical base than the old flat green plane. Roads,
     // compounds and vegetation now read against an Accra-like earth/grass mix.
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x8c8b61, roughness: 0.99, metalness: 0 });
+    const groundMap=accraGroundTexture().clone();groundMap.repeat.set(260,260);groundMap.needsUpdate=true;
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0xe6d6c2, map:groundMap, roughness: 0.99, metalness: 0 });
+    // Large-scale patches (greener lots, bare laterite, dusty verges) break up
+    // texture tiling across the whole city without extra draw calls.
+    groundMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+varying vec2 vGroundXZ;
+float gHash(vec2 p){return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453);}
+float gNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(gHash(i),gHash(i+vec2(1,0)),f.x),mix(gHash(i+vec2(0,1)),gHash(i+vec2(1,1)),f.x),f.y);}`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+float gm = gNoise(vGroundXZ * 0.018) * 0.65 + gNoise(vGroundXZ * 0.07) * 0.35;
+float gd = gNoise(vGroundXZ * 0.011 + 17.0);
+vec3 lush = vec3(0.62, 0.78, 0.45);
+vec3 laterite = vec3(1.12, 0.86, 0.68);
+diffuseColor.rgb *= mix(laterite, lush, smoothstep(0.36, 0.66, gm));
+diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
+    };
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = -0.03;
@@ -87,8 +113,15 @@ export class AccraWorldRuntime {
     const manifest = this.manifest;
     if (!manifest || this.destroyed) return;
     const center = chunkForPoint(x, z, manifest.chunkSize);
+    const nextKey=chunkKey(center.cx,center.cz);
+    this.updateDetail(x,z);
+    const now = performance.now();
+    if(!wait && nextKey===this.centerKey && now-this.streamAt<3000)return;
+    this.streamAt=now;
+    this.centerKey=nextKey;
     const radius = this.mobile ? 1 : 2;
     const wanted = new Set<string>();
+    this.wanted=wanted;
     const jobs: Promise<void>[] = [];
 
     for (let dx = -radius; dx <= radius; dx++) {
@@ -111,6 +144,30 @@ export class AccraWorldRuntime {
     else void Promise.all(jobs);
   }
 
+  private updateDetail(x:number,z:number){
+    const now=performance.now();if(now-this.detailAt<250)return;this.detailAt=now;
+    for(const chunk of Array.from(this.loaded.values())){
+      const size=this.manifest?.chunkSize??256;
+      const dx=Math.max(0,chunk.data.cx*size-x,x-(chunk.data.cx+1)*size);
+      const dz=Math.max(0,chunk.data.cz*size-z,z-(chunk.data.cz+1)*size);
+      const distance=Math.hypot(dx,dz);
+      const people=chunk.group.getObjectByName('osm-people');if(people)people.visible=distance<(this.mobile?65:115);
+      const dressing=chunk.group.getObjectByName('osm-street-dressing');
+      if(dressing)for(const child of dressing.children){
+        if(child.name==='accra-commercial-frontage'){
+          child.visible=Math.hypot(child.position.x-x,child.position.z-z)<(this.mobile?110:180);
+          const light=child.getObjectByName('shop-light') as THREE.PointLight;
+          if(light)light.intensity=0; // only the active mission and base use dynamic shop lights
+        }
+      }
+    }
+  }
+
+  cameraObstacles(x:number,z:number):THREE.Object3D[]{
+    const size=this.manifest?.chunkSize??256;
+    return Array.from(this.loaded.values()).filter(c=>Math.abs((c.data.cx+.5)*size-x)<size/2+20&&Math.abs((c.data.cz+.5)*size-z)<size/2+20).map(c=>c.group.getObjectByName('osm-buildings')!).filter(Boolean);
+  }
+
   private loadChunk(key: string): Promise<void> {
     const existing = this.loading.get(key);
     if (existing) return existing;
@@ -119,7 +176,7 @@ export class AccraWorldRuntime {
         const response = await fetch(`${this.baseUrl}/chunks/${key}.json`, { cache: "force-cache" });
         if (!response.ok || this.destroyed) return;
         const data = await response.json() as WorldChunk;
-        if (this.loaded.has(key) || this.destroyed) return;
+        if (this.loaded.has(key) || this.destroyed || !this.wanted.has(key)) return;
         const group = new THREE.Group();
         group.name = `osm-chunk-${key}`;
         group.add(buildRoadGroup(data.roads, this.mobile));
@@ -293,6 +350,7 @@ export class AccraWorldRuntime {
     this.loaded.clear();
     this.roadIndex.clear();
     disposeLandmarkGroup(this.landmarks);
+    (this.ground.material as THREE.MeshStandardMaterial).map?.dispose();
     this.ground.geometry.dispose();
     const material = this.ground.material;
     if (Array.isArray(material)) material.forEach(m => m.dispose());

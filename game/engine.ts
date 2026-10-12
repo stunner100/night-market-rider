@@ -1,16 +1,24 @@
+import { customerDetails, customerApproachStep } from "./delivery/customer";
 import * as THREE from "three";
 import { buildWorld, World } from "./world";
 import { buildRider, RiderRig } from "./bike";
-import { makeOrder, saveBoard, separateOrderFromRider, useGame } from "./store";
+import { makeOrder, saveBoard, separateOrderFromRider, useGame, persistProgress, restoreProgress, type GameState } from "./store";
 import { GameAudio } from "./audio";
-import { textTexture, skyDomeTexture, disposeTextureCache } from "./textures";
-import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
+import { textTexture, disposeTextureCache } from "./textures";
+import { Sky } from "./sky";
+import { orderDetails, prepSeconds } from "./delivery/order-details";
+import { settleDelivery } from "./delivery/settlement";
+import { DestinationBeacon, RouteRibbon } from "./world/route-ribbon";
+import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, buildHelmet, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
 import { formatWorldDistance, polylineLength, worldUnitsToMetres } from "./world/distance";
 import { BOOST_FUEL_PER_SECOND, CRUISE_FUEL_PER_SECOND, fuelBrand } from "./world/fuel-stations";
 import { buildMinimapFrame, type MinimapFrame } from "./world/minimap-data";
 import { cueFromRoute } from "./world/navigation";
 import { OsmGameplay } from "./world/osm-gameplay";
+import { movementTarget } from "./rider-controls";
+import { buildDeliveryPlace, disposeDeliveryPlace } from "./world/delivery-place";
+import { reduceDelivery, initialDelivery, deliveryPhase, type DeliveryEvent, type DeliveryContext } from "./delivery/machine";
 import { chooseRoadside } from "./world/roadside-placement";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
@@ -23,10 +31,20 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const particleGeo = new THREE.SphereGeometry(0.15, 6, 5);
 
 // Pre-allocated Color objects for applySky
-const _skyDay = new THREE.Color(0x87ceeb);
-const _skySunset = new THREE.Color(0xff9e5e);
-const _skyNight = new THREE.Color(0x0b1026);
+const _sunDir = new THREE.Vector3();
+/** Half width / half length of each vehicle body in metres. */
+const VEHICLE_FOOTPRINT: Record<string, [number, number]> = {
+  car: [0.95, 2.15], taxi: [0.95, 2.15], trotro: [1.2, 2.95], bus: [1.25, 3.9], okada: [0.4, 0.95],
+};
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+/** World north is -Z; heading 0 faces +Z. */
+function compassPoint(heading: number) {
+  const bearing = Math.atan2(Math.sin(heading), -Math.cos(heading));
+  return COMPASS[((Math.round(bearing / (Math.PI / 4)) % 8) + 8) % 8];
+}
+const CARRY_STAGES = ['returnBike', 'rideCustomer', 'contact', 'calling', 'findCustomer', 'handoff'];
 const _skyResult = new THREE.Color();
+const _white = new THREE.Color(0xffffff);
 // Pre-allocated Vector3 for exhaust position
 const _exhaustPos = new THREE.Vector3();
 // Pre-allocated Vector3 for menu camera target
@@ -52,10 +70,14 @@ export class Engine {
   customerNPC: THREE.Group | null = null;
   vendorRig: HumanoidRig | null = null;
   customerRig: HumanoidRig | null = null;
+  private vendorBag: THREE.Object3D | null = null;
+  private customerBag: THREE.Object3D | null = null;
   targetLabel: THREE.Sprite | null = null;
-  skyDome: THREE.Mesh | null = null;
+  sky: Sky | null = null;
   particles: Particle[] = [];
   chevrons: THREE.Mesh[] = [];
+  private routeRibbon = new RouteRibbon();
+  private beacon = new DestinationBeacon();
   dustTimer = 0;
   nightF = 0; // 0 day → 1 night
   hudTimer = 0;
@@ -74,6 +96,165 @@ export class Engine {
   private _osmRouteFromZ = 0;
   private _bannerTimer: ReturnType<typeof setTimeout> | null = null;
   private _fuelWarned = false;
+  private parked = { x: 0, z: 0, heading: 0 };
+  private shiftSeconds = 0;
+  private freeDestination: {x:number;z:number;name:string} | null = null;
+  private basePlace: THREE.Group | null = null;
+  private base = {x:0,z:-18};
+  private paidOrderId: number | null = null;
+  private cameraRay = new THREE.Raycaster();
+  private cameraAnchor = new THREE.Vector3();
+  private cameraDirection = new THREE.Vector3();
+  private cameraCheckAt = 0;
+  private cameraClearance = 20;
+  /** Steering input eased over time so lean, turning and camera feel analogue. */
+  private steerSmooth = 0;
+  private camHeading = 0;
+  private spillToastAt = 0;
+
+  /** True while the order is in the delivery box (after vendor collection). */
+  private carryingFood() {
+    return CARRY_STAGES.includes(useGame.getState().delivery.stage);
+  }
+
+  /** Rough riding spills the food: lowers the tip and the customer's rating. */
+  private spill(amount: number, why?: string) {
+    if (!this.carryingFood()) return;
+    const s = useGame.getState();
+    const before = s.foodCondition;
+    const after = Math.max(0, before - amount);
+    if (after === before) return;
+    s.set({ foodCondition: after });
+    const now = performance.now();
+    if (why && now - this.spillToastAt > 2500) {
+      this.spillToastAt = now;
+      s.pushToast(`🍲 ${why} · food ${Math.round(after)}%`);
+    }
+  }
+
+  navigateTo(kind: 'base' | 'fuel') {
+    const s=useGame.getState();
+    if(s.order){s.pushToast('Finish your delivery or go offline before changing destination.');return;}
+    const fuel=(this.osmPlay?.fuelBodies()??this.world.fuelStations).slice().sort((a,b)=>Math.hypot(a.x-this.px,a.z-this.pz)-Math.hypot(b.x-this.px,b.z-this.pz))[0];
+    this.freeDestination=kind==='base'?{...this.base,name:'Night Market rider base'}:fuel?{x:fuel.x,z:fuel.z,name:'Fuel station'}:null;
+    s.set({navigationTarget:this.freeDestination?.name??'',phoneOpen:false});this._osmRouteTarget='';
+    if(this.freeDestination)this.setTargetLabel(this.freeDestination.name,this.freeDestination.x,this.freeDestination.z);
+  }
+  serviceBike() {
+    const s=useGame.getState();
+    if(s.paused || Math.hypot(this.px-this.base.x,this.pz-this.base.z)>14 || Math.abs(this.speed)>1)return;
+    this._fuelWarned=false;s.set({fuel:100,strikes:0,boost:100});s.pushToast('Bike serviced. Fuel topped up. Ready for the city.');this.audio.pickup();
+  }
+  roadsideAssist() {
+    const s=useGame.getState();
+    if(s.paused || s.fuel>0 || Math.abs(this.speed)>1)return;
+    this.dispatchDelivery({type:'offline'});
+    this.px=this.base.x;this.pz=this.base.z;this.speed=0;s.set({mounted:true,fuel:35,phoneOpen:false});
+    s.pushToast('Roadside assistance brought you to base with reserve fuel.');
+  }
+  private vendorPlace: THREE.Group | null = null;
+  private customerPlace: THREE.Group | null = null;
+  private footRider = buildHumanoid({ skin: 0x623b20, shirt: 0xf2e35c, pants: 0x20252b, hair: 'short' });
+  private carriedBag = buildHandBag(0xf2e35c);
+
+  deliveryContext(): DeliveryContext {
+    const s = useGame.getState();
+    const distance = (g: THREE.Group | null) => g ? Math.hypot(this.px - g.position.x, this.pz - g.position.z) : Infinity;
+    return { mounted: s.mounted, speed: this.speed, vendorDistance: distance(this.vendorNPC), customerDistance: distance(this.customerNPC),
+      destinationDistance: s.order ? Math.hypot(this.px - s.order.dropX, this.pz - s.order.dropZ) : Infinity,
+      bikeDistance: Math.hypot(this.px - this.parked.x, this.pz - this.parked.z), delay: prepSeconds(s.orderIndex), customer: s.order?.customer ?? 'Customer',
+      customerNote: customerDetails(s.order?.id ?? 1).note, customerReply: customerDetails(s.order?.id ?? 1).reply,
+      missesFirstCall: customerDetails(s.order?.id ?? 1).missesFirstCall,
+      ...this.orderContext() };
+  }
+
+  private orderContext() {
+    const o = useGame.getState().order;
+    if (!o) return {};
+    const d = orderDetails(o);
+    return { bagMissing: d.missingIndex >= 0, vendorPerson: d.vendorPerson, cashOrder: d.payment === 'cash', correctChange: d.change };
+  }
+
+  dispatchDelivery(event: DeliveryEvent) {
+    const s = useGame.getState();
+    if (s.paused) return;
+    const before = s.delivery;
+    const next = reduceDelivery(before, event, this.deliveryContext());
+    s.set({ delivery: next, phase: deliveryPhase(next.stage) });
+    if (next.stage === before.stage) {
+      if(next.message !== before.message) s.pushToast(next.message);
+      return;
+    }
+    if (next.stage === 'offline' || next.stage === 'waiting') {
+      if (s.order) s.set({ order: null, orderIndex: s.orderIndex + 1, timeLeft: 0 });
+      this.clearNPCs(); this.world.setMarkers(null, null, 'offline');
+      if (this.targetLabel) this.targetLabel.visible = false;
+      this._osmRoute = [];
+      persistProgress();
+    }
+    if (next.stage === 'returnBike' && s.order) {
+      this.spawnCustomer(s.order);
+      this.world.setMarkers(null, { x: s.order.dropX, z: s.order.dropZ }, 'toDropoff');
+      this.setTargetLabel(`${s.order.customer} · ${s.order.dropoff}`, s.order.dropX, s.order.dropZ);
+      this.audio.pickup();
+    }
+    if (next.stage === 'calling') { s.set({ phoneOpen: true }); this.audio.blip(440, .6, 'sine', .1); }
+    // The call screen has done its job once the customer answers.
+    if (before.stage === 'calling' && next.stage !== 'calling') s.set({ phoneOpen: false });
+    if (next.stage === 'findCustomer' && this.customerNPC) {
+      this.setTargetLabel(`${s.order?.customer} · CUSTOMER`, this.customerNPC.position.x, this.customerNPC.position.z);
+      this.world.dropMarker.position.set(this.customerNPC.position.x,.1,this.customerNPC.position.z);
+    }
+    if (next.stage === 'completed') this.completeDelivery();
+    if (next.message && next.message !== before.message) s.pushToast(next.message);
+  }
+
+  toggleOnline() {
+    this.audio.ensure();
+    this.dispatchDelivery({ type: useGame.getState().delivery.stage === 'offline' ? 'online' : 'offline' });
+  }
+  declineOrder() { this.dispatchDelivery({ type: 'decline' }); }
+  approveBag() { this.dispatchDelivery({ type: 'approveBag' }); }
+  reportMissing() { this.dispatchDelivery({ type: 'reportMissing' }); }
+  giveChange(amount: number) { this.dispatchDelivery({ type: 'giveChange', amount }); }
+  /** Number-key shortcuts for the bag check and the change options. */
+  choose(n: number) {
+    const s = useGame.getState();
+    if (s.delivery.stage === 'checkBag') { if (n === 1) this.approveBag(); else if (n === 2) this.reportMissing(); }
+    else if (s.delivery.stage === 'payment' && s.order) {
+      const amount = orderDetails(s.order).changeOptions[n - 1];
+      if (amount !== undefined) this.giveChange(amount);
+    }
+  }
+  messageCustomer() { this.dispatchDelivery({ type: 'message' }); }
+  callCustomer() { this.dispatchDelivery({ type: 'call' }); }
+  interact() {
+    const stage = useGame.getState().delivery.stage;
+    if (stage === 'vendor') this.dispatchDelivery({ type: 'confirm' });
+    else if (stage === 'collect') this.dispatchDelivery({ type: 'collect' });
+    else if (stage === 'contact') this.callCustomer();
+    else if (stage === 'findCustomer') this.dispatchDelivery({ type: 'handoff' });
+  }
+  toggleMount() {
+    const s = useGame.getState();
+    if (s.paused || ['menu', 'loading'].includes(s.phase) || ['handoff', 'calling'].includes(s.delivery.stage)) return;
+    if (s.mounted) {
+      if (Math.abs(this.speed) > 1) { s.pushToast('Brake to a stop before getting off.'); return; }
+      this.parked = { x: this.px, z: this.pz, heading: this.heading };
+      const x = this.px + Math.cos(this.heading) * 1.5, z = this.pz - Math.sin(this.heading) * 1.5;
+      if (this.osmActive && this.osmWorld.collidesBuilding(x, z, .35)) { s.pushToast('Move to a clear space before parking.'); return; }
+      this.px = x; this.pz = z;
+      s.set({ mounted: false });
+    } else {
+      if (this.deliveryContext().bikeDistance > 3) { s.pushToast('Walk back to your parked bike.'); return; }
+      this.px = this.parked.x; this.pz = this.parked.z; this.heading = this.parked.heading;
+      s.set({ mounted: true });
+      if (s.delivery.stage === 'returnBike') { s.pushToast('🛵 Bag secured in the delivery box'); this.audio.pickup(); }
+    }
+    this.speed = 0;
+    this.rig.body.visible = !s.mounted;
+    this.footRider.group.visible = s.mounted;
+  }
 
   constructor(public canvas: HTMLCanvasElement) {
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
@@ -88,22 +269,23 @@ export class Engine {
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1200);
     this.scene.background = new THREE.Color(0x87ceeb);
 
-    // Stylized Tropical Sky Dome
-    const skyDomeGeo = new THREE.SphereGeometry(350, 24, 16);
-    const skyDomeMat = new THREE.MeshBasicMaterial({
-      map: skyDomeTexture(),
-      side: THREE.BackSide,
-      fog: false,
-    });
-    this.skyDome = new THREE.Mesh(skyDomeGeo, skyDomeMat);
-    this.scene.add(this.skyDome);
+    // Procedural tropical sky driven by the shift clock.
+    this.sky = new Sky();
+    this.scene.add(this.sky.mesh);
 
     this.world = buildWorld(this.scene, this.isMobile);
     this.osmWorld = new AccraWorldRuntime(this.scene, this.isMobile);
+    this.world.pickupMarker.scale.setScalar(.48);this.world.dropMarker.scale.setScalar(.48);
     this.rig = buildRider();
     this.scene.add(this.rig.group);
+    this.footRider.group.visible = false;
+    this.footRider.head.add(buildHelmet(0xf2e35c));
+    this.footRider.armR.hand.add(this.carriedBag);
+    this.scene.add(this.footRider.group);
+    restoreProgress();
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
+    this.scene.add(this.routeRibbon.mesh, this.beacon.group);
     // nav chevrons
     const geo = new THREE.ConeGeometry(0.55, 1.1, 4);
     for (let i = 0; i < 6; i++) {
@@ -145,6 +327,12 @@ export class Engine {
     this.osmActive = true;
     this.osmPlay = new OsmGameplay(this.scene, this.osmWorld, this.isMobile);
     this.osmPlay.start(this.px, this.pz);
+    this.osmPlay.onHonk = (distance) => this.audio.trafficHorn(distance);
+    this.base={x:this.px,z:this.pz};
+    const baseSpot=this.placeActor(this.px,this.pz);
+    this.basePlace=buildDeliveryPlace('NIGHT MARKET · RIDER BASE');
+    this.basePlace.position.set(baseSpot.x,0,baseSpot.z);this.basePlace.rotation.y=baseSpot.yaw;
+    this.scene.add(this.basePlace);
     useGame.getState().pushToast("🗺️ Real Accra map loaded");
   }
 
@@ -176,16 +364,16 @@ export class Engine {
     const state = useGame.getState();
     const order = state.order;
     const phase = state.phase;
-    const navigating = phase === "offer" || phase === "toPickup" || phase === "toDropoff";
+    const navigating = !!this.freeDestination || phase === "offer" || phase === "toPickup" || phase === "toDropoff";
     return buildMinimapFrame({
       px: this.px,
       pz: this.pz,
       roads: this.osmWorld.visibleRoads(this.px, this.pz, 1),
       route: navigating ? this._osmRoute : [],
-      pickup: order && (phase === "offer" || phase === "toPickup" || phase === "pickup") ? { x: order.pickupX, z: order.pickupZ } : null,
+      pickup: order && (phase === "offer" || phase === "toPickup" || phase === "pickup") ? { x: order.pickupX, z: order.pickupZ } : this.freeDestination,
       drop: order && (phase === "toDropoff" || phase === "deliver") ? { x: order.dropX, z: order.dropZ } : null,
       fuel: (this.osmPlay?.fuelBodies() ?? []).map(station => ({ x: station.x, z: station.z })),
-      landmarks: this.osmWorld.locations.map(location => ({ x: location.x, z: location.z, name: location.name })),
+      landmarks: [{...this.base,name:"RIDER BASE"},...this.osmWorld.locations.map(location => ({ x: location.x, z: location.z, name: location.name }))],
       radius: 130,
     });
   }
@@ -210,6 +398,11 @@ export class Engine {
     this.audio.ensure();
     this._applyKey(e.code, true);
     if (e.code === "KeyH" && !e.repeat) { this.audio.horn(); useGame.getState().pushToast("📯 Poooop!"); }
+    if (e.repeat) return;
+    if (e.code === 'KeyE') this.toggleMount();
+    if (e.code === 'KeyF') this.interact();
+    if (/^Digit[1-3]$/.test(e.code)) this.choose(Number(e.code.slice(5)));
+    if (e.code === 'KeyN') { const s = useGame.getState(); s.set({ phoneOpen: !s.phoneOpen }); }
     if (e.code === "Enter") this.confirm();
   };
   private _onKeyUp = (e: KeyboardEvent) => this._applyKey(e.code, false);
@@ -239,8 +432,9 @@ export class Engine {
   pauseGame() {
     const s = useGame.getState();
     if (s.paused) return;
-    if (!["offer", "countdown", "toPickup", "pickup", "toDropoff", "deliver", "delivered"].includes(s.phase)) return;
+    if (!["offline", "waiting", "offer", "countdown", "toPickup", "pickup", "toDropoff", "deliver", "delivered"].includes(s.phase)) return;
     s.set({ paused: true });
+    this.input = { up: false, down: false, left: false, right: false, boost: false };
     this.audio.setPaused(true);
   }
 
@@ -253,32 +447,34 @@ export class Engine {
 
   quitToMenu() {
     const s = useGame.getState();
-    s.set({ paused: false, phase: "menu", order: null, banner: null, timeLeft: 0, turnHint: "" });
+    persistProgress();
+    if(s.score>0)saveBoard(s.nickname,s.score);
+    this.freeDestination=null;
+    s.set({ navigationTarget:"", delivery: initialDelivery(), mounted: true, phoneOpen: false, paused: false, phase: "menu", order: null, banner: null, timeLeft: 0, turnHint: "" });
     this.audio.setPaused(false);
     this.audio.setEngine(0, false);
     this.clearNPCs();
     this.world.setMarkers(null, null, "menu");
     if (this.targetLabel) {
       const mat = this.targetLabel.material as THREE.SpriteMaterial;
-      if (mat.map) mat.map.dispose();
       mat.dispose();
       this.scene.remove(this.targetLabel);
       this.targetLabel = null;
     }
-    this.speed = 0;
+    this.speed = 0; this.rig.body.visible = true; this.footRider.group.visible = false;
   }
 
   startRun() {
     const s = useGame.getState();
-    s.set({
-      phase: "countdown", countdown: 3, order: null, orderIndex: 0,
-      earnings: 0, xp: 0, deliveries: 0, streak: 0, bestStreak: 0,
-      rating: 5.0, ratingsCount: 0, score: 0, strikes: 0, timeLeft: 0,
-      lastDelivery: null, banner: null, fuel: 100, paused: false,
-    });
+    s.set({ delivery: initialDelivery(), mounted: true, phoneOpen: false,
+      phase: 'offline', order: null, orderIndex: Math.max(s.orderIndex,s.deliveries,this.paidOrderId??0),
+      streak: 0, strikes: 0, timeLeft: 0, lastDelivery: null, banner: null, fuel: 100, paused: false });
+    this.freeDestination=null;s.set({navigationTarget:""});
+    this.rig.body.visible = true; this.footRider.group.visible = false;
+    this.world.setMarkers(null, null, 'offline');
     this.audio.setPaused(false);
     this._fuelWarned = false;
-    this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0;
+    this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0; this.camHeading = this.heading; this.steerSmooth = 0;
     if (this.osmActive) {
       const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
       if (snapped) { this.px = snapped.x; this.pz = snapped.z; }
@@ -291,7 +487,9 @@ export class Engine {
   }
 
   offerNext() {
+    this.freeDestination=null;
     const s = useGame.getState();
+    s.set({navigationTarget:""});
     const order = this.osmActive
       ? separateOrderFromRider(makeOrder(s.orderIndex), this.px, this.pz, s.orderIndex)
       : makeOrder(s.orderIndex);
@@ -307,9 +505,16 @@ export class Engine {
         order.timeTotal = Math.round(order.timeTotal * Math.min(1.85, routed / straight));
       }
     }
+    if(!this.osmActive){
+      const pads=[{x:60,z:8},{x:8,z:60},{x:-60,z:-8},{x:-8,z:-60}];
+      const pickup=pads[s.orderIndex%pads.length],drop=pads[(s.orderIndex+2)%pads.length];
+      order.pickupX=pickup.x;order.pickupZ=pickup.z;order.dropX=drop.x;order.dropZ=drop.z;
+    }
     this._osmRouteTarget = "";
     this._osmRoute.length = 0;
-    s.set({ phase: "offer", order, timeLeft: order.timeTotal, banner: null });
+    s.set({ order, timeLeft: order.timeTotal, banner: null });
+    this.dispatchDelivery({ type: 'offer' });
+    navigator.vibrate?.([100, 60, 100]);
     this.world.setMarkers({ x: order.pickupX, z: order.pickupZ }, null, "offer");
     this.spawnVendor(order);
     this.setTargetLabel(`${order.vendor}`, order.pickupX, order.pickupZ);
@@ -320,7 +525,10 @@ export class Engine {
   acceptOrder() {
     const s = useGame.getState();
     if (s.phase !== "offer" || !s.order) return;
-    s.set({ phase: "toPickup" });
+    this.orderCollisions=0;
+    this.spillToastAt = 0;
+    s.set({ foodCondition: 100 });
+    this.dispatchDelivery({ type: 'accept' });
     this.world.setMarkers({ x: s.order.pickupX, z: s.order.pickupZ }, null, "toPickup");
     s.pushToast(`Order accepted — head to ${s.order.vendor}!`);
   }
@@ -344,10 +552,14 @@ export class Engine {
     const bag = buildHandBag(0xf2e35c);
     bag.position.set(0, -0.02, 0.05);
     rig.armL.hand.add(bag);
+    this.vendorBag = bag;
     const spot = this.placeActor(order.pickupX, order.pickupZ);
     rig.group.position.set(spot.x, 0, spot.z);
     rig.group.rotation.y = spot.yaw;
     this.scene.add(rig.group);
+    this.vendorPlace = buildDeliveryPlace(useGame.getState().order?.vendor ?? 'NIGHT MARKET');
+    this.vendorPlace.position.set(spot.x,0,spot.z);this.vendorPlace.rotation.y=spot.yaw;
+    this.scene.add(this.vendorPlace);
     this.vendorNPC = rig.group;
     this.vendorRig = rig;
   }
@@ -355,7 +567,7 @@ export class Engine {
     if (this.vendorNPC) { this._disposeGroup(this.vendorNPC); this.scene.remove(this.vendorNPC); this.vendorNPC = null; this.vendorRig = null; }
     const rig = buildHumanoid({
       skin: this._pick(SKIN_TONES),
-      shirt: this._pick([0xd6336c, 0x2f9e44, 0xe9ecef, 0x1971c2]),
+      shirt: customerDetails(useGame.getState().order?.id ?? 1).shirt,
       pants: this._pick([0x1971c2, 0x343a40, 0x2b2b2b]),
       hair: this._pick(["afro", "short", "wrap", "bald", "cap"] as HairStyle[]),
       capColor: this._pick([0xd6336c, 0x1971c2, 0x2f9e44]),
@@ -369,14 +581,27 @@ export class Engine {
     rig.group.position.set(spot.x, 0, spot.z);
     rig.group.rotation.y = spot.yaw;
     this.scene.add(rig.group);
+    this.customerPlace = buildDeliveryPlace('LEGON COMMUNITY',true);
+    this.customerPlace.position.set(spot.x,0,spot.z);this.customerPlace.rotation.y=spot.yaw;
+    this.scene.add(this.customerPlace);
     this.customerNPC = rig.group;
     this.customerRig = rig;
+    // The customer only holds the bag once the rider hands it over.
+    const handed = buildHandBag(0xf2e35c);
+    handed.position.set(0, -0.02, 0.05);
+    handed.visible = false;
+    rig.armR.hand.add(handed);
+    this.customerBag = handed;
   }
   clearNPCs() {
+    if(this.vendorPlace)disposeDeliveryPlace(this.vendorPlace);
+    if(this.customerPlace)disposeDeliveryPlace(this.customerPlace);
+    this.vendorPlace=this.customerPlace=null;
     if (this.vendorNPC) { this._disposeGroup(this.vendorNPC); this.scene.remove(this.vendorNPC); }
     if (this.customerNPC) { this._disposeGroup(this.customerNPC); this.scene.remove(this.customerNPC); }
     this.vendorNPC = this.customerNPC = null;
     this.vendorRig = this.customerRig = null;
+    this.vendorBag = this.customerBag = null;
   }
 
   private _disposeGroup(g: THREE.Group) {
@@ -412,19 +637,37 @@ export class Engine {
     const spot = this.placeActor(anchorX, anchorZ);
     group.position.set(spot.x, 0, spot.z);
     group.rotation.y = spot.yaw;
+    const place=group===this.vendorNPC?this.vendorPlace:this.customerPlace;
+    if(place){place.position.set(spot.x,0,spot.z);place.rotation.y=spot.yaw;}
   }
 
   private animateNPCs(t: number, phase: string, dt: number) {
     const order = useGame.getState().order;
+    for(const place of [this.vendorPlace,this.customerPlace,this.basePlace]) {
+      if(!place)continue;
+      place.visible=place.position.distanceTo(this.rig.group.position)<200;
+      const lamp=place.getObjectByName('shop-light') as THREE.PointLight;
+      if(lamp)lamp.intensity=this.nightF*28;
+    }
     if (order && (phase === "offer" || phase === "toPickup")) this.settleRoadside(this.vendorNPC, order.pickupX, order.pickupZ);
     if (order && phase === "toDropoff") this.settleRoadside(this.customerNPC, order.dropX, order.dropZ);
     if (this.vendorRig && this.vendorNPC) {
       const v = this.vendorNPC;
       this._faceRider(v, dt);
       const d = Math.hypot(this.px - v.position.x, this.pz - v.position.z);
-      if (phase === "pickup") {
-        if (d > 2.3) animateWalk(this.vendorRig, t, 5);
-        else animateHandoff(this.vendorRig, t);
+      const stage = useGame.getState().delivery.stage;
+      if (this.vendorBag) this.vendorBag.visible = ['preparing', 'collect', 'fixingBag'].includes(stage) || phase === 'offer' || phase === 'toPickup';
+      if (stage === "preparing" || stage === "fixingBag") {
+        // Busy at the counter, back to the rider, glancing over now and then.
+        const place = this.vendorPlace;
+        if (place && Math.sin(t * 0.7) < 0.6) v.rotation.y = place.rotation.y + Math.PI;
+        animateIdle(this.vendorRig, t * 2.2, 1.7);
+      } else if (stage === "collect") {
+        if (d < 3.2) animateHandoff(this.vendorRig, t);
+        else if ((t % 3) < 1.4) animateWave(this.vendorRig, t);
+        else animateIdle(this.vendorRig, t, 2.3);
+      } else if (phase === "pickup") {
+        animateIdle(this.vendorRig, t, 2.3);
       } else if (phase === "offer" || phase === "toPickup") {
         if ((t % 7) < 1.6) animateWave(this.vendorRig, t);
         else animateIdle(this.vendorRig, t, 2.3);
@@ -432,12 +675,29 @@ export class Engine {
     }
     if (this.customerRig && this.customerNPC) {
       const c = this.customerNPC;
+      const state = useGame.getState();
+      let approaching = false;
+      if (order && this.customerPlace && state.delivery.stage === 'findCustomer' &&
+          customerDetails(order.id).approaches && !state.mounted && Math.abs(this.speed) < 1) {
+        const next = customerApproachStep(c.position, { x: this.px, z: this.pz }, this.customerPlace.position, dt,
+          (x, z) => this.onRoad(x, z) || (this.osmActive && !!this.osmWorld.collidesBuilding(x, z, .45)));
+        if (next) { c.position.x=next.x; c.position.z=next.z; approaching=true; }
+      }
+      if (state.delivery.stage === 'findCustomer') {
+        this.world.dropMarker.position.set(c.position.x,.1,c.position.z);
+        if(this.targetLabel)this.targetLabel.position.set(c.position.x,4.6,c.position.z);
+      }
       this._faceRider(c, dt);
       const d = Math.hypot(this.px - c.position.x, this.pz - c.position.z);
-      if (phase === "deliver") {
-        if (d > 2.3) animateWalk(this.customerRig, t, 5);
+      if (approaching) {
+        animateWalk(this.customerRig, t, 1.1);
+      } else if (phase === "deliver") {
+        if (state.delivery.stage === "payment") animateHandoff(this.customerRig, t);
         else animateReceive(this.customerRig, t);
-      } else if (phase === "toDropoff") {
+      } else if (phase === "delivered") {
+        animateIdle(this.customerRig, t, 4.1);
+      }
+      if (this.customerBag) this.customerBag.visible = ['handoff', 'completed'].includes(state.delivery.stage); else if (phase === "toDropoff") {
         if ((t % 8) < 1.6) animateWave(this.customerRig, t);
         else animateIdle(this.customerRig, t, 4.1);
       }
@@ -446,14 +706,13 @@ export class Engine {
   setTargetLabel(text: string, x: number, z: number) {
     if (this.targetLabel) {
       const mat = this.targetLabel.material as THREE.SpriteMaterial;
-      if (mat.map) mat.map.dispose();
       mat.dispose();
       this.scene.remove(this.targetLabel);
       this.targetLabel = null;
     }
-    const tex = textTexture(`📍 ${text}`, { bg: "#0b0b0c", fg: "#f2e35c", border: "#f2e35c", w: 512, h: 128 });
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-    sp.scale.set(7.2, 1.8, 1);
+    const tex = textTexture(text, { bg: "#0b0b0c", fg: "#f2e35c", border: "#f2e35c", w: 512, h: 128 });
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: true }));
+    sp.scale.set(4.8, 1.2, 1);
     sp.position.set(x, 4.6, z);
     this.scene.add(sp);
     this.targetLabel = sp;
@@ -474,6 +733,7 @@ export class Engine {
     this.speed = -Math.min(3, Math.abs(this.speed) * 0.15); // slight bounce-back
     this.shake = 1.2;
     this.orderCollisions++;
+    this.spill(18);
     this.audio.crash();
     this.sparks(this.px, this.pz);
     const strikes = s.strikes + 1;
@@ -481,8 +741,7 @@ export class Engine {
     const rating = Math.max(2.5, s.rating - 0.3);
     s.set({ strikes, streak, rating });
     s.pushToast(why);
-    if (strikes >= 3) this.gameOver();
-    else s.set({ banner: `CRASH! ${3 - strikes} ${3 - strikes === 1 ? "chance" : "chances"} left` });
+    s.pushToast('Take it easy. Your shift is still active.');
   }
 
   failOrder(why: string) {
@@ -498,14 +757,25 @@ export class Engine {
 
   completeDelivery() {
     const s = useGame.getState();
-    const o = s.order!;
+    const o = s.order;
+    if (!o || this.paidOrderId===o.id) return;
+    this.paidOrderId=o.id;
     const timeBonus = Math.max(0, Math.round(s.timeLeft * 5));
     const noCrash = this.orderCollisions === 0;
     const newStreak = s.streak + 1;
     const mult = newStreak >= 10 ? 2 : newStreak >= 5 ? 1.5 : newStreak >= 3 ? 1.25 : 1;
-    const reward = Math.round(o.reward * mult * 100) / 100;
-    const xpGain = Math.round((o.xp + timeBonus + (noCrash ? 200 : 0)) * mult);
-    const ratingNew = Math.min(5, Math.max(3.2, 5 - this.orderCollisions * 0.4 - (s.timeLeft < 10 ? 0.3 : 0)));
+    const condition = Math.round(s.foodCondition);
+    const details = orderDetails(o);
+    const d = s.delivery;
+    const settled = settleDelivery({
+      fare: o.reward, streakMultiplier: mult, condition, onTime: s.timeLeft > 0, timeLeft: s.timeLeft,
+      collisions: this.orderCollisions, missingAccepted: d.missingAccepted, itemFixed: d.itemFixed,
+      missingItem: details.missingIndex >= 0 ? details.items[details.missingIndex].name : undefined,
+      changeError: d.changeError,
+    });
+    const { tip, payout: reward } = settled;
+    const xpGain = Math.round((o.xp + timeBonus + (noCrash ? 200 : 0)) * mult) + settled.xpBonus;
+    const ratingNew = settled.rating;
     const ratingsCount = s.ratingsCount + 1;
     const rating = Math.round(((s.rating * s.ratingsCount + ratingNew) / ratingsCount) * 10) / 10;
     const score = s.score + xpGain + Math.round(reward * 100);
@@ -516,16 +786,15 @@ export class Engine {
       xp: s.xp + xpGain, deliveries, streak: newStreak,
       bestStreak: Math.max(s.bestStreak, newStreak),
       rating, ratingsCount, score,
-      lastDelivery: { reward, xp: xpGain, rating: ratingNew, streak: newStreak },
-      banner: null,
+      lastDelivery: { reward, xp: xpGain, rating: ratingNew, streak: newStreak, tip, condition, comment: settled.comment, customer: o.customer, lines: settled.lines },
+      banner: null, tutorialDone: true, onTime: s.onTime + (s.timeLeft > 0 ? 1 : 0),
     });
-    if (noCrash) s.pushToast("✨ PERFECT DELIVERY · NO COLLISION BONUS");
-    if (s.timeLeft > o.timeTotal * 0.4) s.pushToast("⚡ EXPRESS DELIVERY +500");
-    this.deliveredT = 2.6;
+    persistProgress();
+    if (noCrash && condition >= 95) s.pushToast("✨ PERFECT DELIVERY · FOOD STILL HOT");
+    else if (noCrash) s.pushToast("✨ NO COLLISION BONUS");
     this.world.setMarkers(null, null, "delivered");
-    if (this.targetLabel) { this.scene.remove(this.targetLabel); this.targetLabel = null; }
-    // day → night progression
-    this.nightF = Math.min(1, deliveries / 12);
+    if (this.targetLabel) { this.targetLabel.material.dispose(); this.scene.remove(this.targetLabel); this.targetLabel = null; }
+    // Time progression is independent of deliveries.
   }
 
   gameOver() {
@@ -539,7 +808,7 @@ export class Engine {
   spawnPuff(x: number, y: number, z: number, color: number, n = 6, spread = 2) {
     if (this.isMobile && this.particles.length > 60) return;
     for (let i = 0; i < n; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 });
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false });
       const m = new THREE.Mesh(particleGeo, mat);
       const s = rand(0.08, 0.2) / 0.15;
       m.scale.set(s, s, s);
@@ -589,33 +858,35 @@ export class Engine {
       if (this.countdownT <= 0) this.offerNext();
     }
 
-    const riding = ["offer", "toPickup", "pickup", "toDropoff", "deliver"].includes(phase);
-    const canDrive = ["offer", "toPickup", "toDropoff"].includes(phase);
+    const riding = !['menu', 'loading', 'gameover', 'countdown'].includes(phase);
+    const canDrive = riding && !['handoff', 'completed', 'calling', 'checkBag', 'fixingBag', 'payment'].includes(s.delivery.stage) && !s.phoneOpen;
+    const onFoot = !s.mounted;
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
-    const maxSp = 26 + orderDiff * 2;
-    const boostMax = 37;
+    const maxSp = onFoot ? 3.4 : 26 + orderDiff * 2;
+    const boostMax = onFoot ? 5.5 : 37;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
-    const wantReverse = this.input.down && Math.abs(this.speed) <= 0.3;
-    const target = !canDrive ? 0 : this.input.up ? (this.boostOn ? boostMax : maxSp) : wantReverse ? -5.5 : 0;
+    const target = !canDrive ? 0 : movementTarget(this.input.up, this.input.down, this.speed, this.boostOn ? boostMax : maxSp, onFoot ? 2 : 5.5);
     const accel = this.input.down ? 34 : 20;
     // Can't accelerate without fuel
-    const effectiveTarget = s.fuel <= 0 ? 0 : target;
+    const effectiveTarget = s.fuel <= 0 && !onFoot ? 0 : target;
     if (this.speed < effectiveTarget) this.speed = Math.min(effectiveTarget, this.speed + accel * dt);
     else if (this.speed > effectiveTarget) this.speed = Math.max(effectiveTarget, this.speed - (this.input.up ? 4 : 26) * dt);
     if (!this.onRoad(this.px, this.pz) && this.speed > 8) this.speed = Math.max(8, this.speed - 14 * dt);
+    if (!onFoot && this.speed > 18 && this.input.down) this.spill(5 * dt, 'Harsh braking');
+    if (!onFoot && this.speed > 27 && Math.abs(this.steerSmooth) > 0.85) this.spill(2.5 * dt, 'Sharp turn at speed');
     if (this.boostOn) s.boost = Math.max(0, s.boost - 22 * dt);
     else s.boost = Math.min(100, s.boost + (this.speed > 12 ? 6 : 3.5) * dt);
 
     // Fuel consumption
-    if (canDrive && Math.abs(this.speed) > 0.5) {
+    if (canDrive && !onFoot && Math.abs(this.speed) > 0.5) {
       const fuelRate = this.boostOn ? BOOST_FUEL_PER_SECOND : CRUISE_FUEL_PER_SECOND;
       s.fuel = Math.max(0, s.fuel - fuelRate * dt);
     }
     // Out of fuel — can't accelerate
-    if (s.fuel <= 0) {
+    if (s.fuel <= 0 && !onFoot) {
       this.speed = Math.max(0, this.speed - 12 * dt); // coast to stop
       if (this.speed < 0.5 && this._fuelWarned !== true) {
         this._fuelWarned = true;
@@ -625,10 +896,15 @@ export class Engine {
     }
 
     const steerAuthority = THREE.MathUtils.clamp(Math.abs(this.speed) / 10, 0, 1) * (this.speed >= 0 ? 1 : -1);
-    if (canDrive && this.speed !== 0) {
-      const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
-      this.heading += steer * 2.1 * steerAuthority * dt * (this.boostOn ? 0.8 : 1);
+    const steerInput = canDrive ? (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0) : 0;
+    const steerRate = onFoot ? 14 : steerInput === 0 ? 7 : 4.5;
+    this.steerSmooth += (steerInput - this.steerSmooth) * Math.min(1, steerRate * dt);
+    if (canDrive && (onFoot || this.speed !== 0)) {
+      // Slightly less twitchy at top speed, tighter at low speed for alleys.
+      const speedDamp = onFoot ? 1 : 1 - 0.3 * THREE.MathUtils.clamp(Math.abs(this.speed) / 37, 0, 1);
+      this.heading += this.steerSmooth * 2.2 * speedDamp * (onFoot ? 1 : steerAuthority) * dt * (this.boostOn ? 0.8 : 1);
     }
+    const previousX = this.px, previousZ = this.pz;
     const nx = this.px + Math.sin(this.heading) * this.speed * dt;
     const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
     if (this.osmActive) {
@@ -644,7 +920,9 @@ export class Engine {
       if (hit) {
         this.px -= Math.sin(this.heading) * this.speed * dt * 1.5;
         this.pz -= Math.cos(this.heading) * this.speed * dt * 1.5;
-        this.crash(`💥 Collided with ${hit}! Easy oo.`);
+        this.px = previousX; this.pz = previousZ;
+        if (!onFoot) this.crash(`Collided with ${hit}. Brake and reposition.`);
+        else this.speed = 0;
       }
     }
 
@@ -655,7 +933,10 @@ export class Engine {
     if (this.py > 0 || this.vy !== 0) {
       this.vy -= 22 * dt;
       this.py += this.vy * dt;
-      if (this.py <= 0) { this.py = 0; this.vy = 0; this.bump = 0.5; this.shake = Math.max(this.shake, 0.4); }
+      if (this.py <= 0) {
+        if (this.vy < -5) this.spill(Math.min(10, -this.vy), 'Hard landing');
+        this.py = 0; this.vy = 0; this.bump = 0.5; this.shake = Math.max(this.shake, 0.4);
+      }
     }
     const osm = this.osmPlay;
     const traffic = osm ? osm.trafficBodies() : this.world.traffic;
@@ -684,12 +965,13 @@ export class Engine {
         this.potCool = 1.2; this.vy = 3.4; this.speed *= 0.7;
         this.shake = Math.max(this.shake, 0.7);
         this.audio.noise(0.15, 0.3);
-        s.pushToast("🕳️ Pothole!");
+        if (this.carryingFood()) this.spill(4 + Math.abs(this.speed) * 0.35, 'Pothole');
+        else s.pushToast("🕳️ Pothole!");
       }
     }
 
     // Solid world building collisions (stops phasing through walls!)
-    if (riding && this.crashCool <= 0 && this.world.colliders) {
+    if (riding && !onFoot && this.crashCool <= 0 && this.world.colliders) {
       for (const col of this.world.colliders) {
         if (this.px >= col.minX && this.px <= col.maxX && this.pz >= col.minZ && this.pz <= col.maxZ) {
           this.crash(`💥 Collided with ${col.name}! Easy oo.`);
@@ -703,15 +985,27 @@ export class Engine {
       }
     }
 
-    if (riding) {
+    if (riding && !onFoot) {
       for (const c of activeTraffic) {
         if (!c.mesh.visible) continue;
-        const d = Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z);
-        const reach = c.kind === "bus" || c.kind === "trotro" ? 3.2 : 2.5;
-        const crashLine = c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : c.kind === "bus" ? "🚌 Bus bump! Easy oo." : c.kind === "taxi" ? "🚕 Taxi crash! Chale, easy oo." : "🚗 Crash! Chale, easy oo.";
-        if (d < reach && Math.abs(this.speed) > 4) { this.crash(crashLine); break; }
-        else if (d < reach && this.crashCool <= 0) { this.speed *= 0.4; }
-        if (d > reach && d < reach + 1.8 && Math.abs(this.speed) > 16 && this.nearCool <= 0) {
+        // Oriented footprint test: a vehicle passing in its own lane is not a crash.
+        const [halfW, halfL] = VEHICLE_FOOTPRINT[c.kind] ?? VEHICLE_FOOTPRINT.car;
+        const yaw = c.mesh.rotation.y;
+        const dx = this.px - c.mesh.position.x, dz = this.pz - c.mesh.position.z;
+        const along = Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw));
+        const sideSigned = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+        const side = Math.abs(sideSigned);
+        const hit = along < halfL + 0.45 && side < halfW + 0.32;
+        const crashLine = c.kind === "okada" ? "🏍️ Okada clash! Chale, watch am." : c.kind === "trotro" ? "🚐 Trotro bump! Slow am." : c.kind === "bus" ? "🚌 Bus bump! Easy oo." : c.kind === "taxi" ? "🚕 Taxi crash! Chale, easy oo." : "🚗 Crash! Chale, easy oo.";
+        if (hit && Math.abs(this.speed) > 4) { this.crash(crashLine); break; }
+        else if (hit) {
+          // Slow contact: ease the rider out to the vehicle's side rather than pinning them.
+          const push = (halfW + 0.34 - side) * (sideSigned >= 0 ? 1 : -1);
+          this.px += Math.cos(yaw) * push;
+          this.pz -= Math.sin(yaw) * push;
+        }
+        const close = along < halfL + 1.6 && side < halfW + 1.5;
+        if (!hit && close && Math.abs(this.speed) > 16 && this.nearCool <= 0) {
           this.nearCool = 2;
           s.set({ score: s.score + 100, xp: s.xp + 25 });
           s.pushToast("😱 NEAR MISS +100");
@@ -738,6 +1032,7 @@ export class Engine {
           this.speed = Math.max(3.5, this.speed * 0.6);
           this.shake = 1.0;
           this.orderCollisions++;
+          this.spill(12);
           s.set({ score: Math.max(0, s.score - 50) });
           s.pushToast(p.goat ? "🐐 Oof! Goat knocked down!" : "💥 BAM! Pedestrian wiped out! Easy oo!");
           this.audio.crash();
@@ -780,88 +1075,16 @@ export class Engine {
       }
     }
 
-    // --- order flow ---
-    const o = s.order;
-    if (o) {
-      if (phase === "toPickup") {
-        const tl = s.timeLeft - dt;
-        s.set({ timeLeft: tl });
-        const d = Math.hypot(this.px - o.pickupX, this.pz - o.pickupZ);
-        // smooth deceleration near vendor (no harsh sudden jerk)
-        if (d < 14) {
-          const maxAllowed = 8 + (d / 14) * 14;
-          if (this.speed > maxAllowed) this.speed = Math.max(maxAllowed, this.speed - 22 * dt);
-        }
-        if (tl <= 0) {
-          this.failOrder("⏰ Vendor wait time expired! Order cancelled.");
-          return;
-        }
-        if (d < 4.2) {
-          s.set({ phase: "pickup" });
-          this.pickupT = 1.8;
-          this.audio.pickup();
-          s.pushToast("PICKING UP ORDER… 📦");
-        }
-      } else if (phase === "pickup") {
-        this.pickupT -= dt;
-        this.speed = Math.max(0, this.speed - 20 * dt);
-        if (this.vendorNPC) {
-          this.vendorNPC.position.x += ((this.px + 2.5) - this.vendorNPC.position.x) * dt * 2;
-          this.vendorNPC.position.z += ((this.pz + 1) - this.vendorNPC.position.z) * dt * 2;
-        }
-        // box lid pops
-        this.rig.boxLid.position.y = 0.58 + Math.sin((1.8 - this.pickupT) * 6) * 0.08 + 0.15;
-        if (this.pickupT <= 0) {
-          this.rig.boxLid.position.y = 0.58;
-          this.orderCollisions = 0;
-          // Allocate delivery time with prompt pickup bonus!
-          const dropTime = Math.round(o.timeTotal * 0.65 + Math.max(5, s.timeLeft * 0.35));
-          s.set({ phase: "toDropoff", timeLeft: dropTime });
-          this.world.setMarkers(null, { x: o.dropX, z: o.dropZ }, "toDropoff");
-          this.spawnCustomer(o);
-          this.setTargetLabel(`${o.customer} · ${o.dropoff}`, o.dropX, o.dropZ);
-          s.pushToast(`ORDER PICKED UP ✅ — Deliver to ${o.customer}`);
-          this.audio.blip(990, 0.2, "triangle", 0.3);
-        }
-      } else if (phase === "toDropoff") {
-        const tl = s.timeLeft - dt;
-        s.set({ timeLeft: tl });
-        const d = Math.hypot(this.px - o.dropX, this.pz - o.dropZ);
-        // smooth deceleration near customer
-        if (d < 14) {
-          const maxAllowed = 8 + (d / 14) * 14;
-          if (this.speed > maxAllowed) this.speed = Math.max(maxAllowed, this.speed - 22 * dt);
-        }
-        if (tl <= 0) { this.failOrder("⏰ Order late — customer cancelled. Fail."); }
-        else if (d < 4.2) {
-          s.set({ phase: "deliver" });
-          this.deliverT = 2.0;
-          this.audio.pickup();
-          s.pushToast("HANDING OVER… 🍱");
-        }
-      } else if (phase === "deliver") {
-        this.deliverT -= dt;
-        this.speed = Math.max(0, this.speed - 20 * dt);
-        if (this.customerNPC) {
-          this.customerNPC.position.x += ((this.px + 2.2) - this.customerNPC.position.x) * dt * 2.4;
-          this.customerNPC.position.z += ((this.pz + 1) - this.customerNPC.position.z) * dt * 2.4;
-        }
-        this.rig.boxLid.position.y = 0.58 + 0.18;
-        if (this.deliverT <= 0) { this.rig.boxLid.position.y = 0.58; this.completeDelivery(); }
-      } else if (phase === "delivered") {
-        this.deliveredT -= dt;
-        this.speed = Math.max(0, this.speed - 10 * dt);
-        if (this.deliveredT <= 0) {
-          s.set({ orderIndex: s.orderIndex + 1 });
-          // reset coins occasionally
-          if (s.orderIndex % 3 === 0) {
-            if (this.osmPlay) this.osmPlay.resetCoins();
-            else for (const c of this.world.coins) { c.taken = false; c.mesh.visible = true; }
-          }
-          this.offerNext();
-        }
-      }
-    }
+    // Mission transitions are centralized and independently testable.
+    if (s.delivery.stage === 'waiting' && s.delivery.remaining <= 0) this.offerNext();
+    else this.dispatchDelivery({ type: 'tick', dt });
+    const current = useGame.getState();
+    const o = current.order;
+    if (o && !['offer', 'completed'].includes(current.delivery.stage)) current.set({ timeLeft: Math.max(0, o.timeTotal - current.delivery.elapsed) });
+    if (s.mounted) s.set({ distanceRidden: s.distanceRidden + Math.hypot(this.px - previousX, this.pz - previousZ) });
+    this.shiftSeconds += dt;
+    const hour = (16 + this.shiftSeconds / 60) % 24;
+    this.nightF = hour >= 19 || hour < 5 ? .95 : hour >= 17 ? (hour - 17) / 2 * .95 : hour < 7 ? (7 - hour) / 2 * .95 : .06;
 
     // trotro banner — track timeout for cleanup
     for (const c of activeTraffic) {
@@ -876,11 +1099,12 @@ export class Engine {
 
     // particles: dust + exhaust
     this.dustTimer -= dt;
-    if ((Math.abs(this.speed) > 14 || !this.onRoad(this.px, this.pz)) && this.dustTimer <= 0 && this.py === 0) {
-      this.dustTimer = 0.06;
+    const offRoad = !this.onRoad(this.px, this.pz);
+    if (s.mounted && Math.abs(this.speed) > 3 && (offRoad || this.boostOn) && this.dustTimer <= 0 && this.py === 0) {
+      this.dustTimer = offRoad ? 0.06 : 0.12;
       this.spawnPuff(this.px - Math.sin(this.heading) * 1.2, 0.3, this.pz - Math.cos(this.heading) * 1.2, this.onRoad(this.px, this.pz) ? 0xcccccc : 0xc2a06b, 1, 1);
     }
-    if (Math.abs(this.speed) > 4 && Math.random() < dt * 12) {
+    if (s.mounted && Math.abs(this.speed) > 4 && Math.random() < dt * 12) {
       this.rig.exhaust.getWorldPosition(_exhaustPos);
       this.spawnPuff(_exhaustPos.x, _exhaustPos.y, _exhaustPos.z, 0x888888, 1, 0.5);
     }
@@ -888,7 +1112,10 @@ export class Engine {
       const p = this.particles[i];
       p.life += dt;
       p.mesh.position.x += p.vx * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.z += p.vz * dt;
-      (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - p.life / p.max);
+      p.vx *= 1 - dt * 2; p.vy *= 1 - dt * 1.5; p.vz *= 1 - dt * 2;
+      p.mesh.scale.multiplyScalar(1 + dt * 1.6);
+      const k = p.life / p.max;
+      (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - k) * (1 - k);
       if (p.life >= p.max) {
         (p.mesh.material as THREE.MeshBasicMaterial).dispose();
         this.scene.remove(p.mesh);
@@ -901,10 +1128,13 @@ export class Engine {
     this.world.update(dt, t, this.nightF, this.px, this.pz);
     this.animateNPCs(t, phase, dt);
     this.syncRig(dt, t, dt);
-    this.updateNav(o, phase);
+    if(!o && this.freeDestination) {
+      const dest=this.freeDestination;
+      this.updateNav({...makeOrder(0),pickupX:dest.x,pickupZ:dest.z},'toPickup');
+    } else this.updateNav(o, phase);
     this.updateCamera(dt, false);
     this.applySky(this.nightF);
-    this.audio.setEngine(Math.min(1, Math.abs(this.speed) / 37), this.boostOn);
+    this.audio.setEngine(s.mounted ? Math.min(1, Math.abs(this.speed) / 37) : -1, this.boostOn);
     if (s.banner && phase === "gameover") s.set({ banner: null });
 
     // throttled HUD sync
@@ -912,16 +1142,25 @@ export class Engine {
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.12;
       if (s.fuel < 20 && s.fuel > 0 && !this._fuelWarned) {
-        s.pushToast("⛽ Fuel low! Find a station!");
+        s.pushToast("⛽ Fuel low! Find a station!");this._fuelWarned=true;
       }
       const targetX = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropX : o?.pickupX ?? 0;
       const targetZ = o && (phase === "toDropoff" || phase === "deliver" || phase === "delivered") ? o.dropZ : o?.pickupZ ?? 0;
-      let distUnits = o ? Math.hypot(this.px - targetX, this.pz - targetZ) : 0;
+      let distUnits = o ? Math.hypot(this.px - targetX, this.pz - targetZ) : this.freeDestination ? Math.hypot(this.px-this.freeDestination.x,this.pz-this.freeDestination.z) : 0;
       let turnHint = "";
-      if (o && (phase === "toPickup" || phase === "toDropoff") && this.osmActive && this._osmRoute.length > 1) {
+      let navManeuver: GameState["navManeuver"] = null;
+      let navTurnIn = 0;
+      let roadName = "";
+      if (this.osmActive) {
+        const roadFrame=this.osmWorld.nearestRoadFrame(this.px,this.pz,25);
+        roadName=(roadFrame?this.osmWorld.visibleRoads(this.px,this.pz,0).find(r=>r.id===roadFrame.roadId)?.name:null) ?? "";
+      }
+      const navigating = this.routeRibbon.mesh.visible || this.beacon.group.visible;
+      if ((o || this.freeDestination) && this.osmActive && this._osmRoute.length > 1) {
         const cue = cueFromRoute(this._osmRoute, this.px, this.pz, this.heading);
-        turnHint = cue.text;
+        turnHint = roadName ? `${cue.text} · ${roadName}` : cue.text;
         distUnits = cue.remaining;
+        if (navigating) { navManeuver = cue.maneuver; navTurnIn = cue.turnIn; }
       } else if (o && (phase === "toPickup" || phase === "toDropoff") && !this.osmActive) {
         const want = Math.atan2(targetX - this.px, targetZ - this.pz);
         let diff = want - this.heading;
@@ -934,15 +1173,33 @@ export class Engine {
       } else if (!this.osmActive) {
         distUnits = worldUnitsToMetres(distUnits, "procedural");
       }
-      s.set({ speedKmh: Math.round(Math.abs(this.speed) * (this.osmActive ? 3.6 : 3.2)), distM: distUnits, turnHint });
+      const context = this.deliveryContext();
+      const interactionDistance = ['ridePickup', 'vendor', 'preparing', 'collect'].includes(s.delivery.stage) ? context.vendorDistance : context.customerDistance;
+      s.set({ atBase: Math.hypot(this.px-this.base.x,this.pz-this.base.z)<14, interactionDistance, bikeDistance: context.bikeDistance, hour,
+        speedKmh: Math.round(Math.abs(this.speed) * (this.osmActive ? 3.6 : 3.2)), distM: distUnits, turnHint,
+        navManeuver, navTurnIn, roadName, compass: compassPoint(this.heading) });
     }
     this.shake = Math.max(0, this.shake - dt * 2.2);
   }
 
   syncRig(dt: number, t: number, step: number) {
-    this.rig.group.position.set(this.px, this.py, this.pz);
-    this.rig.group.rotation.y = this.heading;
-    const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
+    const mounted = useGame.getState().mounted;
+    this.rig.group.position.set(mounted ? this.px : this.parked.x, this.py, mounted ? this.pz : this.parked.z);
+    this.rig.group.rotation.y = mounted ? this.heading : this.parked.heading;
+    this.rig.body.visible = mounted;
+    this.footRider.group.visible = !mounted;
+    if (!mounted) {
+      this.footRider.group.position.set(this.px, 0, this.pz);
+      this.footRider.group.rotation.y = this.heading;
+      const stage = useGame.getState().delivery.stage;
+      this.carriedBag.visible = ['checkBag', 'returnBike', 'rideCustomer', 'contact', 'calling', 'findCustomer', 'payment'].includes(stage);
+      if (stage === 'handoff') animateHandoff(this.footRider, t);
+      else if (Math.abs(this.speed) > .1) animateWalk(this.footRider, t, Math.abs(this.speed));
+      else animateIdle(this.footRider, t, 0);
+      this.rig.lean.rotation.z = .14;
+      return;
+    }
+    const steer = this.steerSmooth;
     const stopped = Math.abs(this.speed) < 1.5;
     // bike tilts slightly left when the rider plants a foot at a stop
     const leanTarget = -steer * Math.min(0.45, Math.abs(this.speed) / 60) + Math.sin(t * 1.3) * 0.015 + (stopped ? 0.12 : 0);
@@ -979,11 +1236,14 @@ export class Engine {
   }
 
   updateNav(o: ReturnType<typeof makeOrder> | null, phase: string) {
-    const show = !!o && (phase === "toPickup" || phase === "toDropoff" || phase === "offer");
+    const show = !!o && (phase === "toPickup" || phase === "pickup" || phase === "toDropoff" || phase === "offer");
     for (const c of this.chevrons) c.visible = show;
-    if (!show || !o) return;
-    const tx = phase === "toDropoff" ? o.dropX : o.pickupX;
-    const tz = phase === "toDropoff" ? o.dropZ : o.pickupZ;
+    if (!show || !o) { this.routeRibbon.hide(); this.beacon.hide(); return; }
+    const stage=useGame.getState().delivery.stage;
+    const returnBike=stage==='returnBike';
+    const closeActor=stage==='findCustomer'?this.customerNPC:['vendor','collect','preparing'].includes(stage)?this.vendorNPC:null;
+    const tx = returnBike ? this.parked.x : closeActor ? closeActor.position.x : phase === "toDropoff" ? o.dropX : o.pickupX;
+    const tz = returnBike ? this.parked.z : closeActor ? closeActor.position.z : phase === "toDropoff" ? o.dropZ : o.pickupZ;
 
     if (this.osmActive) {
       const now = performance.now();
@@ -991,33 +1251,24 @@ export class Engine {
       const moved = Math.hypot(this.px - this._osmRouteFromX, this.pz - this._osmRouteFromZ);
       const due = targetKey !== this._osmRouteTarget || now - this._osmRouteAt > 2500 || (moved > 16 && now - this._osmRouteAt > 650);
       if (due) {
-        this._osmRoute = this.osmWorld.route({ x: this.px, z: this.pz }, { x: tx, z: tz });
+        this._osmRoute = !useGame.getState().mounted ? [{x:this.px,z:this.pz},{x:tx,z:tz}] : this.osmWorld.route({ x: this.px, z: this.pz }, { x: tx, z: tz });
         this._osmRouteTarget = targetKey;
         this._osmRouteAt = now;
         this._osmRouteFromX = this.px;
         this._osmRouteFromZ = this.pz;
       }
       const route = this._osmRoute;
-      const pointAt = (wanted: number) => {
-        let walked = 0;
-        for (let j = 0; j < route.length - 1; j++) {
-          const a = route[j], b = route[j + 1];
-          const len = Math.hypot(b.x - a.x, b.z - a.z);
-          if (walked + len >= wanted) {
-            const u = len > 0 ? (wanted - walked) / len : 0;
-            return { x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u, ang: Math.atan2(b.x - a.x, b.z - a.z) };
-          }
-          walked += len;
-        }
-        return null;
-      };
-      for (let i = 0; i < this.chevrons.length; i++) {
-        const p = pointAt(7 + i * 7);
-        if (!p) { this.chevrons[i].visible = false; continue; }
-        this.chevrons[i].visible = true;
-        this.chevrons[i].position.set(p.x, 0.7 + Math.sin(now / 300 + i) * 0.15, p.z);
-        this.chevrons[i].rotation.z = -p.ang;
-      }
+      // The painted ribbon replaces the floating cones on real roads.
+      for (const c of this.chevrons) c.visible = false;
+      const toCustomer = phase === "toDropoff" && !returnBike;
+      const routeColor = returnBike ? 0x74c0fc : toCustomer ? 0x51cf66 : 0xf2e35c;
+      this.routeRibbon.setColor(routeColor);
+      if (route.length > 1) this.routeRibbon.update(route, this.px, this.pz, now / 1000);
+      else this.routeRibbon.hide();
+      const targetDistance = Math.hypot(this.px - tx, this.pz - tz);
+      // Up close the column only blocks the view of the vendor/customer.
+      if (targetDistance > 26) this.beacon.show(tx, tz, routeColor, now / 1000, targetDistance);
+      else this.beacon.hide();
     } else {
       const dx = tx - this.px, dz = tz - this.pz;
       const dist = Math.hypot(dx, dz);
@@ -1031,30 +1282,34 @@ export class Engine {
         this.chevrons[i].rotation.z = -ang;
       }
     }
-    if (this.targetLabel) this.targetLabel.position.y = 4.6 + Math.sin(performance.now() / 400) * 0.25;
+    if (this.targetLabel) {
+      this.targetLabel.position.y = 3.8 + Math.sin(performance.now() / 600) * .1;
+      const labelDistance = Math.hypot(this.px-tx,this.pz-tz);
+      this.targetLabel.visible = !returnBike && labelDistance > 8 && labelDistance < 95;
+    }
   }
 
   applySky(night: number) {
-    // Late afternoon → golden hour → sunset → night
-    if (night < 0.5) _skyResult.lerpColors(_skyDay, _skySunset, night * 2);
-    else _skyResult.lerpColors(_skySunset, _skyNight, (night - 0.5) * 2);
-    this.scene.background = _skyResult;
-    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
-
-    if (this.skyDome) {
-      this.skyDome.position.set(this.px, 0, this.pz);
-      this.skyDome.rotation.y = performance.now() * 0.00003;
-      (this.skyDome.material as THREE.MeshBasicMaterial).color.copy(_skyResult);
-    }
-
-    // Traverse sun across tropical sky (golden afternoon -> lower sunset -> night)
-    const sunX = 70 + night * 20;
-    const sunY = Math.max(22, 95 - night * 70);
+    // Traverse sun across tropical sky (golden afternoon -> low sunset -> night)
+    const sunX = 70 + night * 30;
+    const sunY = Math.max(14, 95 - night * 85);
     const sunZ = 40 - night * 30;
     this.world.sun.position.set((this.osmActive ? this.px : 0) + sunX, sunY, (this.osmActive ? this.pz : 0) + sunZ);
-    this.world.sun.intensity = 2.4 - night * 1.9;
-    this.world.sun.color.setHSL(0.1 - night * 0.05, 0.7, 0.75 - night * 0.25);
-    this.world.hemi.intensity = 0.95 - night * 0.6;
+    if (this.sky) {
+      _sunDir.set(sunX, night > 0.75 ? sunY * 0.25 : sunY, sunZ);
+      this.sky.setTime(night, _sunDir, performance.now() / 1000);
+      this.sky.mesh.position.copy(this.camera.position);
+      _skyResult.copy(this.sky.horizon);
+      this.world.sun.color.copy(this.sky.sunColor).lerp(_white, 0.35 - night * 0.2);
+    }
+    this.scene.background = _skyResult;
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
+    this.world.sun.intensity = 2.1 - night * 1.85;
+    this.world.hemi.intensity = 0.75 - night * 0.5;
+    this.world.ambient.intensity = 0.45 - night * 0.3;
+    // Image-based reflections otherwise keep the city lit like noon after dark.
+    this.scene.environmentIntensity = 1 - night * 0.75;
+    this.world.hemi.color.copy(_skyResult).lerp(_white, 0.45);
   }
 
   updateCamera(dt: number, menu: boolean) {
@@ -1070,11 +1325,19 @@ export class Engine {
       if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
       return;
     }
-    const back = 8.6 + Math.abs(this.speed) * 0.05;
-    const h = 4.1 + Math.abs(this.speed) * 0.02;
-    const dx = this.px - Math.sin(this.heading) * back;
-    const dz = this.pz - Math.cos(this.heading) * back;
-    const lag = Math.min(1, dt * (4.2 - Math.min(1.5, Math.abs(this.speed) / 30)));
+    const mounted = useGame.getState().mounted;
+    const speedK = Math.min(1, Math.abs(this.speed) / 37);
+    const back = (mounted ? 7.2 : 4.5) + speedK * 1.8;
+    const h = (mounted ? 3.3 : 2.8) + speedK * 0.5;
+    // Swing the camera with a smoothed heading but keep it locked to the bike's
+    // position, so high speed no longer leaves the rider tiny in the distance.
+    let dh = this.heading - this.camHeading;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    this.camHeading += dh * Math.min(1, dt * (mounted ? 4.5 : 6));
+    const dx = this.px - Math.sin(this.camHeading) * back;
+    const dz = this.pz - Math.cos(this.camHeading) * back;
+    const lag = Math.min(1, dt * 12);
     this.camPos.x += (dx - this.camPos.x) * lag;
     this.camPos.y += (h - this.camPos.y) * Math.min(1, dt * 4);
     this.camPos.z += (dz - this.camPos.z) * lag;
@@ -1086,10 +1349,34 @@ export class Engine {
     );
 
     // Look-ahead camera tracking with steering bias
-    const steer = (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0);
-    const lookX = this.px + Math.sin(this.heading) * 6.5 + steer * 1.3;
-    const lookZ = this.pz + Math.cos(this.heading) * 6.5;
+    const ahead = mounted ? 6.5 + speedK * 4 : 1.8;
+    const lookX = this.px + Math.sin(this.heading) * ahead + Math.cos(this.heading) * this.steerSmooth * 1.3;
+    const lookZ = this.pz + Math.cos(this.heading) * ahead - Math.sin(this.heading) * this.steerSmooth * 1.3;
+    // Keep the chase camera in front of nearby buildings/traffic instead of inside them.
+    this.cameraAnchor.set(this.px, 1.65 + this.py, this.pz);
+    this.cameraDirection.copy(this.camera.position).sub(this.cameraAnchor);
+    const desiredDistance=this.cameraDirection.length();
+    this.cameraDirection.normalize();
+    if(t-this.cameraCheckAt>.12){
+      this.cameraCheckAt=t;
+      this.cameraRay.set(this.cameraAnchor,this.cameraDirection);
+      this.cameraRay.camera=this.camera;
+      this.cameraRay.near=.3;this.cameraRay.far=desiredDistance;
+      // Traffic is transient; pulling the camera into the helmet whenever a
+      // trotro brakes behind the rider is worse than briefly clipping it.
+      const obstacles:THREE.Object3D[]=[...this.osmWorld.cameraObstacles(this.px,this.pz)];
+      for(const place of [this.vendorPlace,this.customerPlace,this.basePlace])if(place?.visible)obstacles.push(place);
+      const hit=this.cameraRay.intersectObjects(obstacles,true).find(h=>h.object instanceof THREE.Mesh);
+      this.cameraClearance=hit?Math.max(.8,hit.distance-.4):20;
+    }
+    if(this.cameraClearance<desiredDistance){
+      this.camera.position.copy(this.cameraAnchor).addScaledVector(this.cameraDirection,this.cameraClearance);
+      // Rise over the rider instead of pushing into the helmet.
+      // On foot this would push into stall canopies, so only lift while riding.
+      if(mounted)this.camera.position.y+=Math.min(2.2,(desiredDistance-this.cameraClearance)*.35);
+    }
     this.camera.lookAt(lookX, 1.6 + this.py * 0.2, lookZ);
+    if (mounted) this.camera.rotateZ(-this.steerSmooth * speedK * 0.045);
 
     const wantFov = this.boostOn ? 75 : 62 + Math.min(6, Math.abs(this.speed) * 0.15);
     const prevFov = this.camera.fov;
@@ -1116,13 +1403,18 @@ export class Engine {
     this.osmPlay?.dispose();
     this.osmPlay = null;
     this.osmWorld.dispose();
+    if(this.basePlace)disposeDeliveryPlace(this.basePlace);
+    this.scene.remove(this.footRider.group);
+    this._disposeGroup(this.footRider.group);
     // dispose sky dome
-    if (this.skyDome) {
-      this.skyDome.geometry.dispose();
-      (this.skyDome.material as THREE.Material).dispose();
-      this.scene.remove(this.skyDome);
-      this.skyDome = null;
+    if (this.sky) {
+      this.sky.dispose();
+      this.scene.remove(this.sky.mesh);
+      this.sky = null;
     }
+    this.scene.remove(this.routeRibbon.mesh, this.beacon.group);
+    this.routeRibbon.dispose();
+    this.beacon.dispose();
     disposeTextureCache();
     // dispose all particles
     for (const p of this.particles) {
@@ -1133,7 +1425,6 @@ export class Engine {
     this.clearNPCs();
     if (this.targetLabel) {
       const mat = this.targetLabel.material as THREE.SpriteMaterial;
-      if (mat.map) mat.map.dispose();
       mat.dispose();
       this.scene.remove(this.targetLabel);
       this.targetLabel = null;

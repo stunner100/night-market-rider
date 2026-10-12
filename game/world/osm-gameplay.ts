@@ -40,6 +40,7 @@ export class OsmGameplay {
   }
 
   trafficBodies(): TrafficBody[] { return this.traffic.bodies(); }
+  set onHonk(handler: ((distance: number) => void) | null) { this.traffic.onHonk = handler; }
   walkerBodies(): WalkerBody[] { return this.pedestrians.bodies().concat(this.hazards.goatBodies()); }
   potholes(): Spot[] { return this.hazards.spots().potholes; }
   ramps(): Spot[] { return this.hazards.spots().ramps; }

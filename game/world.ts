@@ -98,6 +98,7 @@ export interface World {
   headlight: THREE.SpotLight;
   sun: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
+  ambient: THREE.AmbientLight;
   sky: THREE.Color;
   pickupMarker: THREE.Group;
   dropMarker: THREE.Group;
@@ -127,10 +128,10 @@ function ringMarker(color: number): THREE.Group {
   g.add(ring);
 
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.2, 2.2, 28, 20, 1, true),
+    new THREE.CylinderGeometry(.35, .35, 4, 8, 1, true),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
   );
-  beam.position.y = 14;
+  beam.position.y = 2;
   g.add(beam);
 
   const halo = new THREE.Mesh(
@@ -1175,6 +1176,7 @@ export function buildWorld(scene: THREE.Scene, mobile = false): World {
     headlight: null as unknown as THREE.SpotLight,
     sun,
     hemi,
+    ambient,
     sky,
     pickupMarker,
     dropMarker,

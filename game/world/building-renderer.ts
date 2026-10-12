@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { textTexture } from "../textures";
+import { textTexture, concreteTexture } from "../textures";
 import type { WorldBuilding } from "./types";
 
 // More saturated, sun-faded Ghanaian facade colours instead of a single beige city.
@@ -78,14 +78,14 @@ function addBuildingLabel(group: THREE.Group, building: WorldBuilding, height: n
 }
 
 function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: number, seed: number, mobile: boolean): void {
-  if (mobile || building.footprint.length < 3) return;
+  if (building.footprint.length < 3) return;
   const pts = building.footprint;
-  const windowMat = new THREE.MeshStandardMaterial({ color: WINDOW, roughness: 0.38, metalness: 0.05 });
+  const windowMat = new THREE.MeshStandardMaterial({ color: WINDOW, roughness: 0.38, metalness: 0.05, side: THREE.DoubleSide });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0xf0e8da, roughness: 0.8, metalness: 0 });
   const shopMat = new THREE.MeshStandardMaterial({ color: SHOP_PALETTE[Math.abs(seed) % SHOP_PALETTE.length], roughness: 0.7 });
   const isCommercial = !!building.tags?.shop || building.tags?.building === "commercial";
 
-  const maxEdges = Math.min(6, pts.length - 1);
+  const maxEdges = Math.min(mobile ? 4 : 6, pts.length - 1);
   for (let i = 0; i < maxEdges; i++) {
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
@@ -94,12 +94,14 @@ function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: n
     const len = Math.hypot(dx, dz);
     if (len < 5) continue;
 
-    const levels = Math.max(1, Math.min(5, Math.round(height / 3.2)));
-    const windows = Math.max(1, Math.min(5, Math.floor(len / 5.5)));
+    const levels = Math.max(1, Math.min(mobile ? 3 : 5, Math.round(height / 3.2)));
+    const windows = Math.max(1, Math.min(mobile ? 8 : 16, Math.floor(len / 3.8)));
     const ux = dx / len;
     const uz = dz / len;
-    const nx = -uz;
-    const nz = ux;
+    let nx = -uz, nz = ux;
+    const centre=centroid(building);
+    // OSM rings can have either winding: place details on the exterior face.
+    if(((a.x+b.x)/2-centre.x)*nx+((a.z+b.z)/2-centre.z)*nz<0){nx=-nx;nz=-nz;}
     const yaw = Math.atan2(dx, dz);
 
     for (let level = 0; level < levels; level++) {
@@ -112,16 +114,25 @@ function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: n
           Math.min(height - 0.8, 1.45 + level * 3.0),
           a.z + dz * t + nz * 0.055,
         );
-        pane.rotation.y = yaw + Math.PI;
+        pane.rotation.y = Math.atan2(-dz, dx);
         group.add(pane);
       }
     }
 
+    if(len>7 && height>5 && (seed&3)!==0){
+      const slab=new THREE.Mesh(new THREE.BoxGeometry(Math.min(len,20),.12,.38),trimMat);
+      slab.position.set((a.x+b.x)/2,3.05,(a.z+b.z)/2);slab.rotation.y=Math.atan2(-dz,dx);group.add(slab);
+      if(i===0){
+        for(const t of [.12,.88]){
+          const post=new THREE.Mesh(new THREE.BoxGeometry(.25,3,.25),trimMat);post.position.set(a.x+dx*t,1.5,a.z+dz*t);group.add(post);
+        }
+      }
+    }
     if (i === 0 && len > 6) {
       const t = 0.5;
       const door = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 2.15), trimMat);
       door.position.set(a.x + ux * len * t + nx * 0.06, 1.08, a.z + uz * len * t + nz * 0.06);
-      door.rotation.y = yaw + Math.PI;
+      door.rotation.y = Math.atan2(-dz, dx);
       group.add(door);
 
       if (isCommercial) {
@@ -171,8 +182,8 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
       const cx = (box.min.x + box.max.x) * 0.5;
       const cz = (box.min.z + box.max.z) * 0.5;
 
-      const roof = new THREE.BoxGeometry(sx * 0.96, 0.18, sz * 0.96);
-      roof.translate(cx, height + 0.09, cz);
+      const roof = new THREE.ExtrudeGeometry(shape,{depth:.18,bevelEnabled:false,curveSegments:1});
+      roof.rotateX(-Math.PI/2);roof.translate(0,height+.02,0);
       roofBuckets[Math.abs(seed >>> 3) % roofBuckets.length].push(roof);
 
       if (height > 6 && ((seed >>> 2) & 1) === 0) {
@@ -203,7 +214,7 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
     const merged = mergeGeometries(geometries, false);
     geometries.forEach(g => g.dispose());
     if (!merged) return;
-    const material = new THREE.MeshStandardMaterial({ color: PALETTE[index], roughness: 0.84, metalness: 0.02 });
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE[index], map: concreteTexture(), roughness: 0.84, metalness: 0.02 });
     const mesh = new THREE.Mesh(merged, material);
     mesh.castShadow = !mobile;
     mesh.receiveShadow = true;
@@ -222,6 +233,26 @@ export function buildBuildingGroup(buildings: WorldBuilding[], mobile = false): 
     group.add(roofs);
   });
 
+  // Collapse facade windows, doors, awnings and tanks into material batches.
+  // This also makes detailed facades affordable on mobile.
+  const batches = new Map<string, { material: THREE.Material; geometry: THREE.BufferGeometry[] }>();
+  for (const child of [...group.children]) {
+    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material)) continue;
+    const mat = child.material as THREE.MeshStandardMaterial;
+    if (child.geometry instanceof THREE.ExtrudeGeometry) continue;
+    const key = `${mat.type}:${mat.color?.getHex()}:${mat.roughness}:${mat.metalness}:${mat.side}`;
+    let batch = batches.get(key);
+    if (!batch) { batch = {material:mat,geometry:[]}; batches.set(key,batch); }
+    child.updateMatrix();
+    const geo=child.geometry.index ? child.geometry.toNonIndexed() : child.geometry.clone();
+    geo.applyMatrix4(child.matrix);batch.geometry.push(geo);
+    child.geometry.dispose();if(mat!==batch.material)mat.dispose();group.remove(child);
+  }
+  for(const batch of Array.from(batches.values())) {
+    const geometry=mergeGeometries(batch.geometry,false);batch.geometry.forEach(g=>g.dispose());
+    if(!geometry)continue;
+    const mesh=new THREE.Mesh(geometry,batch.material);mesh.castShadow=!mobile;mesh.receiveShadow=true;group.add(mesh);
+  }
   return group;
 }
 
@@ -231,7 +262,6 @@ export function disposeBuildingGroup(group: THREE.Group): void {
   group.traverse(obj => {
     if (obj instanceof THREE.Sprite) {
       const m = obj.material as THREE.SpriteMaterial;
-      m.map?.dispose();
       materials.add(m);
       return;
     }

@@ -3,14 +3,84 @@ import { useEffect, useRef, useState } from "react";
 import { useGame, saveBoard } from "@/game/store";
 import { formatMetres } from "@/game/world/distance";
 import type { MinimapFrame } from "@/game/world/minimap-data";
+import RiderPhone from "./RiderPhone";
+import { CashPayment, InteractionPrompt, PickupTicket } from "./DeliveryPanels";
+import { customerDetails } from "@/game/delivery/customer";
+import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
+
+const MANEUVER_LABEL = {
+  left: "Turn left",
+  right: "Turn right",
+  straight: "Continue straight",
+  uturn: "Make a U-turn",
+  arrive: "Arriving",
+} as const;
+
+/** Turn-by-turn glyphs drawn on a 48-unit grid, pointing "up" = forward. */
+function ManeuverIcon({ kind }: { kind: keyof typeof MANEUVER_LABEL }) {
+  const paths: Record<keyof typeof MANEUVER_LABEL, string> = {
+    straight: "M24 40 V10 M14 20 L24 9 L34 20",
+    left: "M30 42 V26 Q30 18 22 18 H10 M18 9 L9 18 L18 27",
+    right: "M18 42 V26 Q18 18 26 18 H38 M30 9 L39 18 L30 27",
+    uturn: "M32 42 V20 Q32 9 22 9 Q14 9 14 20 V30 M7 23 L14 31 L21 23",
+    arrive: "M24 43 C24 43 37 30 37 20 A13 13 0 0 0 11 20 C11 30 24 43 24 43 Z M24 15 A5 5 0 1 1 23.9 15",
+  };
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <path d={paths[kind]} />
+    </svg>
+  );
+}
+
+const COUNTER_STAGES = ["preparing", "collect", "checkBag", "fixingBag", "payment", "handoff", "completed"];
+
+function NavBanner() {
+  const s = useGame();
+  // At the counter or with the customer, the ticket and prompt take over.
+  if (COUNTER_STAGES.includes(s.delivery.stage) || (!s.mounted && s.navManeuver === "arrive")) return null;
+  if (!s.navManeuver) {
+    return (
+      <div className="nav-pill" aria-label="Current road and heading">
+        <b>{s.compass}</b>
+        <span>{s.roadName || "Accra"}</span>
+      </div>
+    );
+  }
+  const kind = s.navManeuver;
+  const soon = kind === "uturn" || ((kind === "left" || kind === "right") && s.navTurnIn < 18);
+  return (
+    <div className={`nav-banner nav-${kind}${soon ? " is-now" : ""}`} role="status" aria-live="polite">
+      <div className="nav-icon">
+        <ManeuverIcon kind={kind} />
+      </div>
+      <div className="nav-text">
+        <strong>
+          {kind === "uturn" ? "Turn around" : soon || kind === "arrive" ? MANEUVER_LABEL[kind] : formatMetres(s.navTurnIn)}
+        </strong>
+        <span>
+          {kind === "uturn"
+            ? "You're heading away from the route"
+            : soon || kind === "arrive"
+              ? s.roadName || "Follow the route"
+              : `then ${MANEUVER_LABEL[kind].toLowerCase()}${s.roadName ? ` · ${s.roadName}` : ""}`}
+        </span>
+      </div>
+      <div className="nav-eta">
+        <b>{formatMetres(s.distM)}</b>
+        <span>~{Math.max(1, Math.ceil(s.distM / 400))} min · {s.compass}</span>
+      </div>
+    </div>
+  );
+}
 
 function fmtTime(s: number) {
   s = Math.max(0, Math.ceil(s));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 function roadColor(highway: string): string {
-  if (highway === "trunk" || highway === "trunk_link" || highway === "primary") return "#8d9274";
+  if (highway === "trunk" || highway === "trunk_link" || highway === "primary")
+    return "#8d9274";
   if (highway === "secondary" || highway === "tertiary") return "#6d735c";
   return "#4a5244";
 }
@@ -110,7 +180,13 @@ function drawOsmMinimap(
   g.stroke();
 }
 
-export default function UI({ ready, progress }: { ready: boolean; progress: number }) {
+export default function UI({
+  ready,
+  progress,
+}: {
+  ready: boolean;
+  progress: number;
+}) {
   const s = useGame();
   const [showBoard, setShowBoard] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -134,24 +210,47 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
         drawOsmMinimap(g, frame, eng.px, eng.pz, eng.heading);
         return;
       }
-      const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+      const W = cv.width,
+        H = cv.height,
+        cx = W / 2,
+        cy = H / 2;
       g.clearRect(0, 0, W, H);
       g.save();
-      g.beginPath(); g.arc(cx, cy, cx - 2, 0, Math.PI * 2); g.clip();
-      g.fillStyle = "rgba(10,14,10,0.9)"; g.fillRect(0, 0, W, H);
+      g.beginPath();
+      g.arc(cx, cy, cx - 2, 0, Math.PI * 2);
+      g.clip();
+      g.fillStyle = "rgba(10,14,10,0.9)";
+      g.fillRect(0, 0, W, H);
       const scale = 0.85;
-      const px = eng.px, pz = eng.pz, hd = eng.heading;
-      g.translate(cx, cy); g.rotate(-hd + Math.PI);
+      const px = eng.px,
+        pz = eng.pz,
+        hd = eng.heading;
+      g.translate(cx, cy);
+      g.rotate(-hd + Math.PI);
       const X = (x: number) => (x - px) * scale;
       const Z = (z: number) => (z - pz) * scale;
       // roads
-      g.strokeStyle = "#555"; g.lineWidth = 7;
-      g.beginPath(); g.moveTo(X(-95), Z(0)); g.lineTo(X(95), Z(0)); g.stroke();
-      g.beginPath(); g.moveTo(X(0), Z(-95)); g.lineTo(X(0), Z(95)); g.stroke();
-      g.strokeStyle = "#444"; g.lineWidth = 4;
+      g.strokeStyle = "#555";
+      g.lineWidth = 7;
+      g.beginPath();
+      g.moveTo(X(-95), Z(0));
+      g.lineTo(X(95), Z(0));
+      g.stroke();
+      g.beginPath();
+      g.moveTo(X(0), Z(-95));
+      g.lineTo(X(0), Z(95));
+      g.stroke();
+      g.strokeStyle = "#444";
+      g.lineWidth = 4;
       for (const c of [-60, 60]) {
-        g.beginPath(); g.moveTo(X(-66), Z(c)); g.lineTo(X(66), Z(c)); g.stroke();
-        g.beginPath(); g.moveTo(X(c), Z(-66)); g.lineTo(X(c), Z(66)); g.stroke();
+        g.beginPath();
+        g.moveTo(X(-66), Z(c));
+        g.lineTo(X(66), Z(c));
+        g.stroke();
+        g.beginPath();
+        g.moveTo(X(c), Z(-66));
+        g.lineTo(X(c), Z(66));
+        g.stroke();
       }
       // route + target
       const o = useGame.getState().order;
@@ -159,25 +258,45 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       if (o && (ph === "toPickup" || ph === "toDropoff" || ph === "offer")) {
         const tx = ph === "toDropoff" ? o.dropX : o.pickupX;
         const tz = ph === "toDropoff" ? o.dropZ : o.pickupZ;
-        g.strokeStyle = "#f2e35c"; g.lineWidth = 2.5; g.setLineDash([5, 4]);
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(X(tx), Z(tz)); g.stroke(); g.setLineDash([]);
+        g.strokeStyle = "#f2e35c";
+        g.lineWidth = 2.5;
+        g.setLineDash([5, 4]);
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.lineTo(X(tx), Z(tz));
+        g.stroke();
+        g.setLineDash([]);
         g.fillStyle = ph === "toDropoff" ? "#51cf66" : "#f2e35c";
-        g.beginPath(); g.arc(X(tx), Z(tz), 6, 0, Math.PI * 2); g.fill();
+        g.beginPath();
+        g.arc(X(tx), Z(tz), 6, 0, Math.PI * 2);
+        g.fill();
       }
       // fuel stations on minimap
       if (eng.world?.fuelStations) {
         for (const fs of eng.world.fuelStations) {
-          const fx = X(fs.x), fz = Z(fs.z);
+          const fx = X(fs.x),
+            fz = Z(fs.z);
           g.fillStyle = "#ff922b";
-          g.beginPath(); g.arc(fx, fz, 3.5, 0, Math.PI * 2); g.fill();
-          g.strokeStyle = "#ffffff"; g.lineWidth = 1; g.stroke();
+          g.beginPath();
+          g.arc(fx, fz, 3.5, 0, Math.PI * 2);
+          g.fill();
+          g.strokeStyle = "#ffffff";
+          g.lineWidth = 1;
+          g.stroke();
         }
       }
       g.restore();
       // player arrow (screen-aligned)
-      g.save(); g.translate(cx, cy);
+      g.save();
+      g.translate(cx, cy);
       g.fillStyle = "#f2e35c";
-      g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(0, 3.5); g.lineTo(-6, 7); g.closePath(); g.fill();
+      g.beginPath();
+      g.moveTo(0, -9);
+      g.lineTo(6, 7);
+      g.lineTo(0, 3.5);
+      g.lineTo(-6, 7);
+      g.closePath();
+      g.fill();
       g.restore();
     };
     raf = requestAnimationFrame(draw);
@@ -196,7 +315,8 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       const r = joyRect.current;
       if (!r) return;
       const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
-      const eng = engineRef.current; if (!eng) return;
+      const eng = engineRef.current;
+      if (!eng) return;
       // analog steering: use threshold but also provide proportional input
       eng.input.left = dx < -0.25;
       eng.input.right = dx > 0.25;
@@ -204,12 +324,18 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
     const down = (e: PointerEvent) => {
       joyActive.current = e.pointerId;
       joyRect.current = el.getBoundingClientRect();
+      el.setPointerCapture(e.pointerId);
+      move(e);
     };
     const up = (e: PointerEvent) => {
       if (joyActive.current !== e.pointerId) return;
       joyActive.current = null;
       joyRect.current = null;
-      const eng = engineRef.current; if (eng) { eng.input.left = false; eng.input.right = false; }
+      const eng = engineRef.current;
+      if (eng) {
+        eng.input.left = false;
+        eng.input.right = false;
+      }
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
@@ -221,222 +347,429 @@ export default function UI({ ready, progress }: { ready: boolean; progress: numb
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, [ready]);
+  }, [ready, s.phase === "menu"]);
 
   const hold = (key: "up" | "down" | "boost") => ({
-    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); const eng = engineRef.current; if (eng) { eng.audio.ensure(); eng.input[key] = true; } },
-    onPointerUp: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
-    onPointerCancel: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
-    onPointerLeave: () => { const eng = engineRef.current; if (eng) eng.input[key] = false; },
+    onPointerDown: (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      const eng = engineRef.current;
+      if (eng) {
+        eng.audio.ensure();
+        eng.input[key] = true;
+      }
+    },
+    onPointerUp: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
+    onPointerCancel: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
+    onPointerLeave: () => {
+      const eng = engineRef.current;
+      if (eng) eng.input[key] = false;
+    },
   });
 
   if (!ready) {
     return (
-      <div className="hud-layer" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0b0c" }}>
-        <div className="card pop" style={{ padding: 36, width: 340, textAlign: "center" }}>
-          <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 120, background: "#000", borderRadius: 14, padding: 8 }} />
-          <h2 style={{ margin: "14px 0 6px" }}>Preparing your Night Market shift…</h2>
-          <p style={{ opacity: 0.7, fontSize: 13 }}>Loading Accra · rider · traffic</p>
-          <div className="loading-bar"><div style={{ width: `${progress}%` }} /></div>
+      <div
+        className="hud-layer"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#0b0b0c",
+        }}
+      >
+        <div
+          className="card pop"
+          style={{ padding: 36, width: 340, textAlign: "center" }}
+        >
+          <img
+            src="/brand/night-market-logo.png"
+            alt="Night Market"
+            style={{
+              width: 120,
+              background: "#000",
+              borderRadius: 14,
+              padding: 8,
+            }}
+          />
+          <h2 style={{ margin: "14px 0 6px" }}>
+            Preparing your Night Market shift…
+          </h2>
+          <p style={{ opacity: 0.7, fontSize: 13 }}>
+            Loading Accra · rider · traffic
+          </p>
+          <div className="loading-bar">
+            <div style={{ width: `${progress}%` }} />
+          </div>
         </div>
       </div>
     );
   }
 
   const eng = engineRef.current;
-  const inGame = ["offer", "toPickup", "pickup", "toDropoff", "deliver", "delivered", "countdown"].includes(s.phase);
-
+  const inGame = !["loading", "menu", "gameover"].includes(s.phase);
+  const stage = s.delivery.stage;
+  const online = stage !== "offline";
+  const interaction =
+    stage === "vendor"
+      ? "CONFIRM ORDER"
+      : stage === "collect"
+        ? "COLLECT ORDER"
+        : stage === "findCustomer"
+          ? "HAND OVER ORDER"
+          : stage === "contact"
+            ? s.delivery.callAttempts > 0 ? "RETRY CALL" : "CALL CUSTOMER"
+            : null;
+  const canInteract =
+    stage === "contact"
+      ? s.speedKmh < 3.6 && s.delivery.remaining <= 0
+      : !s.mounted && s.interactionDistance < 3;
   return (
     <div className="hud-layer">
       {s.phase === "menu" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 46, background: "linear-gradient(transparent 40%, rgba(0,0,0,0.72))" }}>
-          <div className="card pop" style={{ padding: "26px 30px", width: "min(480px, 92vw)", textAlign: "center", pointerEvents: "auto" }}>
-            <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 150, background: "#000", borderRadius: 16, padding: 10 }} />
-            <div style={{ fontSize: 13, letterSpacing: 6, opacity: 0.8, marginTop: 8 }}>NIGHT MARKET</div>
-            <h1 style={{ margin: "2px 0 4px", fontSize: 44, letterSpacing: 2 }}>RIDER</h1>
-            <p style={{ margin: "0 0 14px", opacity: 0.85, fontWeight: 700 }}>Deliver Accra. Beat the clock.</p>
-            <button className="btn btn-primary" style={{ width: "100%", pointerEvents: "auto" }} onClick={() => eng?.startRun()}>START RIDING 🛵</button>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowBoard(true)}>Leaderboard</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => setShowHelp(true)}>How to Play</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => { const v = !s.sound; s.set({ sound: v }); if (eng) eng.audio.setEnabled(v); }}>Sound {s.sound ? "ON" : "OFF"}</button>
-            </div>
-            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 12 }}>W/↑ accelerate · S/↓ brake · A D steer · SPACE boost · H horn · ESC pause</p>
+        <div className="welcome-screen">
+          <img src="/brand/night-market-logo.png" alt="Night Market" />
+          <p className="eyebrow">ACCRA IS YOUR NEXT ADVENTURE</p>
+          <h1>RIDER</h1>
+          <p>Your city. Your bike. Your shift.</p>
+          <button className="btn btn-primary" onClick={() => eng?.startRun()}>
+            EXPLORE ACCRA
+          </button>
+          <div className="welcome-links">
+            <button onClick={() => setShowHelp(true)}>Riding guide</button>
+            <button onClick={() => setShowBoard(true)}>Leaderboard</button>
+            <button
+              onClick={() => {
+                s.set({ sound: !s.sound });
+                eng?.audio.setEnabled(!s.sound);
+              }}
+            >
+              Sound {s.sound ? "on" : "off"}
+            </button>
           </div>
         </div>
       )}
-
-      {s.paused && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(360px, 90vw)", pointerEvents: "auto" }}>
-            <div style={{ fontSize: 28, fontWeight: 900 }}>⏸ PAUSED</div>
-            <p style={{ opacity: 0.7, fontSize: 13 }}>Take a breather, rider.</p>
-            <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => eng?.resumeGame()}>RESUME ▶</button>
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => eng?.startRun()}>RESTART</button>
-              <button className="btn btn-ghost" style={{ flex: 1, fontSize: 14 }} onClick={() => eng?.quitToMenu()}>QUIT</button>
-            </div>
-            <p style={{ fontSize: 12, opacity: 0.6, marginTop: 10 }}>ESC / P to resume</p>
-          </div>
-        </div>
-      )}
-
-      {s.phase === "countdown" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div className="pop" style={{ fontSize: 110, fontWeight: 900, color: "#f2e35c", textShadow: "0 10px 40px rgba(0,0,0,0.6)" }}>
-            {s.countdown > 0 ? s.countdown : "LET'S RIDE!"}
-          </div>
-        </div>
-      )}
-
-      {inGame && s.phase !== "countdown" && (
+      {inGame && (
         <>
-          <div style={{ position: "absolute", top: 12, left: 12, display: "flex", gap: 8, alignItems: "center" }}>
-            <span className="pill">🔥 {s.streak} STREAK</span>
-            {s.strikes > 0 && <span className="pill" style={{ borderColor: "#ff6b6b" }}>⚠️ {s.strikes}/3</span>}
-            {!s.paused && (
-              <button className="btn btn-ghost" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => eng?.pauseGame()}>⏸ PAUSE</button>
-            )}
-          </div>
-          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)" }}>
-            <span className="pill" style={{ fontSize: 16, borderColor: s.timeLeft < 15 && (s.phase === "toDropoff" || s.phase === "toPickup") ? "#ff6b6b" : "rgba(255,255,255,0.16)" }}>
-              ⏱ {(s.phase === "toDropoff" || s.phase === "toPickup") ? fmtTime(s.timeLeft) : s.order ? fmtTime(s.order.timeTotal) : "--:--"}
-            </span>
-          </div>
-          <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 8 }}>
-            <span className="pill">GHS {s.earnings.toFixed(2)}</span>
-            <span className="pill">⭐ {s.rating.toFixed(1)}</span>
-          </div>
-          {s.order && (s.phase === "toPickup" || s.phase === "toDropoff") && (
-            <div style={{ position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", textAlign: "center" }}>
-              <span className="pill" style={{ borderColor: "#f2e35c" }}>
-                📍 {s.phase === "toPickup" ? `${s.order.vendor}` : `${s.order.customer} — ${s.order.dropoff}`} · {formatMetres(s.distM)}
+          <header className="shift-header">
+            <div className="shift-brand">
+              <img src="/brand/night-market-logo.png" alt="Night Market" />
+              <span>RIDER / ACCRA</span>
+            </div>
+            <div className="shift-stats">
+              <span>GH₵{s.earnings.toFixed(2)}</span>
+              <span>★ {s.rating.toFixed(1)}</span>
+              <button aria-label="Pause game" onClick={() => eng?.pauseGame()}>
+                Ⅱ
+              </button>
+            </div>
+          </header>
+          <NavBanner />
+          <section className="task-panel" aria-label="Current task">
+            <div className="task-heading">
+              <span className={online ? "online-dot" : "offline-dot"}>
+                {online ? "● ONLINE" : "○ OFFLINE"}
               </span>
-              {s.turnHint ? <div style={{ marginTop: 6 }}><span className="pill" style={{ background: "#f2e35c", color: "#111" }}>{s.turnHint}</span></div> : null}
+              <button onClick={() => eng?.toggleOnline()}>
+                {online ? "GO OFFLINE" : "GO ONLINE"}
+              </button>
             </div>
-          )}
-          {s.banner && (
-            <div style={{ position: "absolute", top: "30%", width: "100%", textAlign: "center" }}>
-              <span className="pop pill" style={{ fontSize: 20, background: "#ff922b", color: "#111", border: "none", padding: "10px 22px" }}>{s.banner}</span>
+            <p className="eyebrow">CURRENT TASK</p>
+            <h2>{s.navigationTarget || deliveryObjective(stage, s.mounted)}</h2>
+            {s.order && (
+              <p>
+                {["ridePickup", "vendor", "preparing", "collect", "checkBag", "fixingBag"].includes(
+                  stage,
+                )
+                  ? s.order.vendor
+                  : `${s.order.customer} · ${s.order.dropoff}`}
+              </p>
+            )}
+            {(s.navigationTarget ||
+              ["ridePickup", "rideCustomer"].includes(stage)) && (
+              <div className="route-instruction">
+                <b>{s.turnHint || "Follow the yellow route"}</b>
+                <span>
+                  {formatMetres(s.distM)} · ~
+                  {Math.max(1, Math.ceil(s.distM / 400))} min
+                </span>
+              </div>
+            )}
+            {["returnBike", "rideCustomer", "contact", "calling", "findCustomer", "handoff"].includes(stage) && (
+              <div
+                className={`food-meter${s.foodCondition < 60 ? " is-low" : ""}`}
+                aria-label={`Food condition ${Math.round(s.foodCondition)} percent`}
+              >
+                <span>FOOD CONDITION</span>
+                <b>{Math.round(s.foodCondition)}%</b>
+                <i style={{ width: `${s.foodCondition}%` }} />
+              </div>
+            )}
+            {stage === "returnBike" && (
+              <p>
+                {Math.round(s.bikeDistance)} m to your parked bike · E to mount
+              </p>
+            )}
+            {stage === "preparing" && (
+              <p>
+                “One minute please.” Ready in {Math.ceil(s.delivery.remaining)}{" "}
+                s
+              </p>
+            )}
+            {stage === "findCustomer" && (
+              <p>
+                {customerDetails(s.order?.id ?? 1).meeting} ·{" "}
+                {Math.round(s.interactionDistance)} m
+              </p>
+            )}
+            {stage === "contact" && s.delivery.callAttempts > 0 && (
+              <>
+                <p>{s.delivery.message}</p>
+                {s.delivery.remaining > 0 && <p>Retry in {Math.ceil(s.delivery.remaining)} s.</p>}
+                <button className="btn btn-ghost" disabled={s.speedKmh >= 3.6 || s.delivery.messageSent}
+                  onClick={() => eng?.messageCustomer()}>MESSAGE: I’VE ARRIVED</button>
+              </>
+            )}
+            {interaction && (
+              <button
+                className="btn btn-primary"
+                disabled={!canInteract}
+                onClick={() => eng?.interact()}
+              >
+                {interaction} <small>F</small>
+              </button>
+            )}
+            {interaction && !canInteract && (
+              <p className="muted">
+                {s.mounted && stage !== "contact"
+                  ? "Stop, press E to get off, then approach on foot."
+                  : stage === "contact"
+                    ? s.delivery.remaining > 0 ? "Wait for the retry timer, or send a message." : "Brake to a stop to call."
+                    : "Walk within 3 m of the person."}
+              </p>
+            )}
+            {s.atBase && stage === "offline" && (
+              <button
+                className="btn btn-ghost"
+                disabled={s.speedKmh > 3}
+                onClick={() => eng?.serviceBike()}
+              >
+                SERVICE BIKE AT BASE
+              </button>
+            )}
+            {stage === "offline" && !s.tutorialDone && (
+              <p className="muted">
+                First shift? Go online → accept → park and collect → call → hand
+                over. We’ll guide you one step at a time.
+              </p>
+            )}
+          </section>
+          <div className="ride-actions">
+            <button onClick={() => s.set({ phoneOpen: !s.phoneOpen })}>
+              PHONE <kbd>N</kbd>
+            </button>
+            <button
+              disabled={s.mounted ? s.speedKmh > 3 : s.bikeDistance > 3}
+              onClick={() => eng?.toggleMount()}
+            >
+              {s.mounted ? "GET OFF BIKE" : "MOUNT BIKE"} <kbd>E</kbd>
+            </button>
+          </div>
+          <div className="ride-telemetry">
+            <strong>
+              {s.mounted ? s.speedKmh : Math.round(s.speedKmh / 3.6)}
+            </strong>
+            <span>{s.mounted ? "KM/H" : "M/S · ON FOOT"}</span>
+            <div className="fuel-meter">
+              <i style={{ width: `${s.fuel}%` }} />
             </div>
-          )}
-          <div style={{ position: "absolute", left: 12, bottom: 110, display: "flex", flexDirection: "column", gap: 6 }}>
-            {s.toasts.map((t) => <span key={t.id} className="pill pop" style={{ background: "rgba(0,0,0,0.75)" }}>{t.text}</span>)}
+            <small>
+              FUEL {Math.round(s.fuel)}% ·{" "}
+              {Math.floor(s.hour).toString().padStart(2, "0")}:
+              {Math.floor((s.hour % 1) * 60)
+                .toString()
+                .padStart(2, "0")}
+            </small>
           </div>
-          {/* boost + speed */}
-          <div style={{ position: "absolute", right: 14, bottom: 110, width: 130 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 3, color: s.fuel < 20 ? '#ff6b6b' : '#fff' }}>⛽ FUEL {Math.round(s.fuel)}%</div>
-            <div className="loading-bar" style={{ marginBottom: 6 }}><div style={{ width: `${Math.round(s.fuel)}%`, background: s.fuel < 20 ? '#ff6b6b' : s.fuel < 40 ? '#ff922b' : '#51cf66' }} /></div>
-            <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 4 }}>{s.boost > 15 ? "BOOST — SPACE" : "BOOST…"}</div>
-            <div className="loading-bar"><div style={{ width: `${Math.round(s.boost)}%` }} /></div>
-            <div style={{ fontSize: 12, fontWeight: 800, marginTop: 6 }}>{s.speedKmh} km/h · {s.deliveries} deliveries · {s.score.toLocaleString()} pts</div>
+          <canvas ref={mapRef} id="minimap" width={150} height={150} />
+          <div className="map-caption">
+            LEGON / ACCRA <span>GPS LIVE</span>
           </div>
-          <canvas ref={mapRef} id="minimap" width={150} height={150} style={{ position: "absolute", left: 12, bottom: 12, width: 110, height: 110 }} />
-          {/* touch controls */}
-          <div ref={joyRef}
-            style={{ position: "absolute", left: 140, bottom: 12, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.3)", pointerEvents: "auto", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800 }}>
+          <div className="toasts" aria-live="polite">
+            {s.toasts.map((t) => (
+              <div key={t.id}>{t.text}</div>
+            ))}
+          </div>
+          <div className="desktop-controls">
+            W S accelerate / brake · A D steer · E mount · F interact · N phone
+            · H horn · ESC pause
+          </div>
+          <div ref={joyRef} className="touch-steer">
             ◀ STEER ▶
           </div>
-          <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 8 }}>
-            <div className="touch-btn" {...hold("down")}>BRAKE</div>
-            <div className="touch-btn" {...hold("up")}>GAS</div>
-            <div className="touch-btn" {...hold("boost")}>BOOST</div>
+          <div className="touch-pedals">
+            <div className="touch-btn" {...hold("down")}>
+              BRAKE
+            </div>
+            <div className="touch-btn" {...hold("up")}>
+              {s.mounted ? "GAS" : "WALK"}
+            </div>
+            <div className="touch-btn" {...hold("boost")}>
+              {s.mounted ? "BOOST" : "RUN"}
+            </div>
           </div>
+          {stage === "offer" && s.order && (
+            <section className="order-offer" aria-label="New delivery offer">
+              <div className="offer-kicker">
+                NIGHT MARKET{" "}
+                <span>{Math.ceil(s.delivery.remaining)}s TO ACCEPT</span>
+              </div>
+              <p className="eyebrow">NEW DELIVERY</p>
+              <h2>{s.order.vendor}</h2>
+              <p>{s.order.food}</p>
+              <div className="offer-route">
+                <span>01 · PICK UP</span>
+                <b>{s.order.vendor} · Legon corridor</b>
+                <span>02 · DELIVER TO</span>
+                <b>
+                  {s.order.customer} · {s.order.dropoff}
+                </b>
+              </div>
+              <div className="offer-pay">
+                <strong>GH₵{s.order.reward.toFixed(2)}</strong>
+                <span>
+                  {(
+                    Math.hypot(
+                      s.order.dropX - s.order.pickupX,
+                      s.order.dropZ - s.order.pickupZ,
+                    ) / 1000
+                  ).toFixed(1)}{" "}
+                  km direct · {Math.ceil(s.order.timeTotal / 60)} min target
+                </span>
+              </div>
+              <div className="offer-buttons">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => eng?.declineOrder()}
+                >
+                  DECLINE
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => eng?.acceptOrder()}
+                >
+                  ACCEPT ORDER
+                </button>
+              </div>
+              <div
+                className="offer-timer"
+                style={{ width: `${(s.delivery.remaining / 25) * 100}%` }}
+              />
+            </section>
+          )}
+          <PickupTicket />
+          <CashPayment />
+          <InteractionPrompt />
+          {stage === "completed" && s.lastDelivery && (
+            <div className="completion">
+              <p className="eyebrow">DELIVERY COMPLETE · MEDAASE!</p>
+              <h2>+GH₵{s.lastDelivery.reward.toFixed(2)}</h2>
+              <div className="completion-stars" aria-label={`Customer rating ${s.lastDelivery.rating.toFixed(1)} of 5`}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <span key={n} className={s.lastDelivery && s.lastDelivery.rating >= n - 0.25 ? "on" : ""}>★</span>
+                ))}
+              </div>
+              <blockquote>“{s.lastDelivery.comment}” — {s.lastDelivery.customer}</blockquote>
+              <dl className="payout-lines">
+                {s.lastDelivery.lines.map((line) => (
+                  <div key={line.label} className={line.amount < 0 ? "is-negative" : ""}>
+                    <dt>{line.label}</dt>
+                    <dd>{line.amount < 0 ? "−" : "+"}GH₵{Math.abs(line.amount).toFixed(2)}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p>
+                +{s.lastDelivery.xp} XP · {s.timeLeft > 0 ? "On time" : "Delivered late"} · food{" "}
+                {s.lastDelivery.condition}% intact · {fmtTime(s.delivery.elapsed)}
+              </p>
+            </div>
+          )}
+          <RiderPhone />
         </>
       )}
-
-      {s.phase === "offer" && s.order && (
-        <div style={{ position: "absolute", bottom: 140, left: "50%", transform: "translateX(-50%)", width: "min(420px, 92vw)", pointerEvents: "auto" }}>
-          <div className="card pop" style={{ padding: 18 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>{s.order.emoji} NEW ORDER</div>
-            <div style={{ fontSize: 14, marginTop: 6, lineHeight: 1.5 }}>
-              Vendor: <b>{s.order.vendor}</b><br />
-              Customer: <b>{s.order.customer}</b> · Dropoff: <b>{s.order.dropoff}</b><br />
-              Reward: <b className="nm-title">GHS {s.order.reward.toFixed(2)}</b> · Time: <b>{fmtTime(s.order.timeTotal)}</b>
-            </div>
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 12 }} onClick={() => eng?.acceptOrder()}>ACCEPT ORDER</button>
-          </div>
+      {s.paused && (
+        <div className="modal-shade">
+          <section className="dialog">
+            <p className="eyebrow">TAKE A BREATHER</p>
+            <h2>Shift paused</h2>
+            <button
+              className="btn btn-primary"
+              onClick={() => eng?.resumeGame()}
+            >
+              RESUME
+            </button>
+            <button className="btn btn-ghost" onClick={() => eng?.quitToMenu()}>
+              RETURN TO MENU
+            </button>
+          </section>
         </div>
       )}
-
-      {(s.phase === "pickup" || s.phase === "deliver") && (
-        <div style={{ position: "absolute", bottom: 150, left: "50%", transform: "translateX(-50%)" }}>
-          <span className="pill pop" style={{ fontSize: 17, background: "#f2e35c", color: "#111", border: "none", padding: "12px 24px" }}>
-            {s.phase === "pickup" ? "PICKING UP ORDER… 📦" : "HANDING OVER… 🍱"}
-          </span>
-        </div>
-      )}
-
-      {s.phase === "delivered" && s.lastDelivery && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div className="card pop" style={{ padding: 26, textAlign: "center", width: "min(400px, 90vw)" }}>
-            <div style={{ fontSize: 30, fontWeight: 900 }}>DELIVERED! 🎉</div>
-            <div style={{ marginTop: 8, lineHeight: 1.7, fontWeight: 700 }}>
-              + GHS {s.lastDelivery.reward.toFixed(2)}<br />
-              + {s.lastDelivery.xp} XP<br />
-              ⭐ Customer Rating: {s.lastDelivery.rating.toFixed(1)}<br />
-              🔥 {s.lastDelivery.streak} Delivery Streak
-            </div>
-          </div>
-        </div>
-      )}
-
-      {s.phase === "gameover" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)" }}>
-          <div className="card pop" style={{ padding: 28, textAlign: "center", width: "min(440px, 92vw)", pointerEvents: "auto" }}>
-            <img src="/brand/night-market-logo.png" alt="Night Market" style={{ width: 90, background: "#000", borderRadius: 12, padding: 6 }} />
-            <h2 style={{ margin: "8px 0" }}>SHIFT COMPLETE</h2>
-            <div style={{ lineHeight: 1.8, fontWeight: 700 }}>
-              Deliveries: {s.deliveries}<br />
-              Earnings: GHS {s.earnings.toFixed(2)}<br />
-              Average Rating: ⭐ {s.rating.toFixed(1)}<br />
-              Score: {s.score.toLocaleString()}<br />
-              Best Streak: 🔥 {s.bestStreak}
-            </div>
-            <input
-              value={s.nickname}
-              onChange={(e) => { s.set({ nickname: e.target.value.slice(0, 14) }); try { localStorage.setItem("nm_name", e.target.value.slice(0, 14)); } catch {} }}
-              placeholder="Your nickname"
-              style={{ marginTop: 12, width: "100%", padding: 12, borderRadius: 12, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "#fff", fontWeight: 800, textAlign: "center" }}
-            />
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { saveBoard(s.nickname || "Rider", s.score); eng?.startRun(); }}>RIDE AGAIN</button>
-              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => {
-                const txt = `I earned GHS ${s.earnings.toFixed(2)} in Night Market Rider! Score ${s.score.toLocaleString()} 🛵`;
-                if (navigator.share) navigator.share({ title: "Night Market Rider", text: txt }).catch(() => {});
-                else { try { navigator.clipboard.writeText(txt); } catch {} s.pushToast("Score copied — share am! 📣"); }
-              }}>SHARE SCORE</button>
-            </div>
-            <button className="btn btn-ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => setShowBoard(true)}>LEADERBOARD</button>
-          </div>
-        </div>
-      )}
-
-      {(showBoard || showHelp) && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", pointerEvents: "auto" }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>
-          <div className="card pop" style={{ padding: 24, width: "min(420px, 92vw)" }} onClick={(e) => e.stopPropagation()}>
+      {(showHelp || showBoard) && (
+        <div className="modal-shade">
+          <section className="dialog">
+            <h2>
+              {showBoard ? "Accra top riders" : "Welcome, Night Market rider"}
+            </h2>
             {showBoard ? (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>ACCRA TOP RIDERS</h3>
-                {s.leaderboard.length === 0 && <p style={{ opacity: 0.7 }}>No shifts yet — be the first!</p>}
-                {s.leaderboard.map((r, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800 }}><span>{i + 1}. {r.name}</span><span>{r.score.toLocaleString()}</span></div>)}
-                <div style={{ fontSize: 12, opacity: 0.6, marginTop: 8 }}>Local leaderboard · Supabase sync coming soon.</div>
+                {s.leaderboard.length ? (
+                  s.leaderboard.map((r, i) => (
+                    <p key={i}>
+                      {i + 1}. {r.name} · {r.score}
+                    </p>
+                  ))
+                ) : (
+                  <p>No recorded shifts yet.</p>
+                )}
               </>
             ) : (
               <>
-                <h3 style={{ margin: "0 0 10px" }}>How to Play</h3>
-                <div style={{ fontSize: 14, lineHeight: 1.7 }}>
-                  1. Accept an order and follow the road to the vendor.<br />
-                  2. Pick up, then follow the route to the customer before time runs out.<br />
-                  3. Watch for cars, taxis, trotros, pedestrians, potholes, speed ramps, and goats. Near misses score +100.<br />
-                  4. Three strikes — crashes or late orders — end the shift. Delivery streaks raise your pay.<br />
-                  5. Stop beside a fuel station to refill. Boost with SPACE, but it burns fuel faster.<br />
-                  6. Night Market coins add score, XP, and a little boost.
-                </div>
+                <p>
+                  Roam freely or go online for work. Accept an offer and follow
+                  GPS to your vendor.
+                </p>
+                <p>
+                  Brake, press E to park, walk to the vendor and press F to
+                  confirm. Collect the food, return to your bike, then follow
+                  GPS to the customer.
+                </p>
+                <p>
+                  Call near the destination. Find the customer, get off and
+                  press F to hand over. Your earnings and progress save on this
+                  device.
+                </p>
+                <p>
+                  W / S to move · A / D to steer · E mount · F interact · N
+                  phone · H horn · Space boost · Esc pause.
+                </p>
               </>
             )}
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={() => { setShowBoard(false); setShowHelp(false); }}>CLOSE</button>
-          </div>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setShowHelp(false);
+                setShowBoard(false);
+              }}
+            >
+              CLOSE
+            </button>
+          </section>
         </div>
       )}
     </div>
