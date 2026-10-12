@@ -17,6 +17,9 @@ const PALETTE = [
   0xb7aaa0, // cement brown
 ];
 const WINDOW = 0x24333b;
+/** Windows that light up at night: on the grid, or on a generator during dumsor. */
+export const WINDOW_GRID = 0x24333c;
+export const WINDOW_GEN = 0x24333d;
 const SHOP_PALETTE = [0xf2d34b, 0xd8583d, 0x2871b5, 0x23885e, 0x70468f];
 
 function hashInt(n: number): number {
@@ -81,6 +84,8 @@ function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: n
   if (building.footprint.length < 3) return;
   const pts = building.footprint;
   const windowMat = new THREE.MeshStandardMaterial({ color: WINDOW, roughness: 0.38, metalness: 0.05, side: THREE.DoubleSide });
+  const gridMat = new THREE.MeshStandardMaterial({ color: WINDOW_GRID, emissive: 0xffc27a, emissiveIntensity: 0, roughness: 0.38, metalness: 0.05, side: THREE.DoubleSide });
+  const genMat = new THREE.MeshStandardMaterial({ color: WINDOW_GEN, emissive: 0xfff1d0, emissiveIntensity: 0, roughness: 0.38, metalness: 0.05, side: THREE.DoubleSide });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0xf0e8da, roughness: 0.8, metalness: 0 });
   const shopMat = new THREE.MeshStandardMaterial({ color: SHOP_PALETTE[Math.abs(seed) % SHOP_PALETTE.length], roughness: 0.7 });
   const isCommercial = !!building.tags?.shop || building.tags?.building === "commercial";
@@ -108,7 +113,8 @@ function addFacadeDetails(group: THREE.Group, building: WorldBuilding, height: n
       for (let w = 0; w < windows; w++) {
         if (((seed + i * 17 + level * 11 + w * 7) & 3) === 0) continue;
         const t = (w + 1) / (windows + 1);
-        const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.15), windowMat);
+        const lit = hashInt(seed + i * 31 + level * 13 + w * 5) % 10;
+        const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.15), lit < 5 ? gridMat : lit < 6 ? genMat : windowMat);
         pane.position.set(
           a.x + dx * t + nx * 0.055,
           Math.min(height - 0.8, 1.45 + level * 3.0),

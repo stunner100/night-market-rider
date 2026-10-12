@@ -17,7 +17,8 @@ export const CONTACTS: Record<ContactId, { name: string; role: string; avatar: s
 
 export type Trigger =
   | "shiftStart" | "shiftReturn" | "online" | "fuelLow" | "crash"
-  | "delivered" | "perfect" | "streak3" | "night" | "late";
+  | "delivered" | "perfect" | "streak3" | "night" | "late"
+  | "rain" | "dumsor" | "fined";
 
 export interface CallContext {
   nickname: string;
@@ -113,6 +114,31 @@ export const SCRIPTS: Script[] = [
   {
     id: "ecg-night", from: "ecg", trigger: "night", kind: "text",
     lines: () => ["Dear Customer, there will be a power interruption in parts of East Legon & Okponglo tonight. We regret any inconvenience."],
+  },
+  {
+    id: "ecg-dumsor", from: "ecg", trigger: "dumsor", kind: "text", repeat: true,
+    lines: () => ["Dear Customer, power in your area is temporarily off due to load management. Supply will be restored shortly. ECG regrets."],
+  },
+  {
+    id: "yaw-dumsor", from: "yaw", trigger: "dumsor", kind: "text",
+    lines: () => ["Chale dumsor again 😩 Use your headlight, the gutters dey hide for dark."],
+  },
+  {
+    id: "maame-rain", from: "maame", trigger: "rain", kind: "text",
+    lines: c => [`${c.nickname}, rain dey fall! Find shelter, no ride inside heavy rain o 🙏🏾`],
+  },
+  {
+    id: "dede-rain", from: "dede", trigger: "rain", kind: "text", repeat: true,
+    lines: () => ["Rain don start — customers go wait small. Ride careful, no rush 🌧️"],
+  },
+  {
+    id: "dede-fined", from: "dede", trigger: "fined", kind: "call",
+    lines: c => [
+      `${c.nickname}! Police call the office say you run their checkpoint?!`,
+      "Next time stop, show your licence. Two minutes no go kill you.",
+      "The fine come from your pocket o, no be Night Market own.",
+    ],
+    missed: () => "Police say you run checkpoint 😤 Next time stop and show licence!",
   },
   {
     id: "customer-late", from: "customer", trigger: "late", kind: "text", repeat: true,

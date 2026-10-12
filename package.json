@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "world:bake:accra": "node scripts/osm/bake-accra.mjs",
-    "test": "tsx --test game/world/gameplay.test.ts game/delivery/*.test.ts game/calls.test.ts",
+    "test": "tsx --test game/world/gameplay.test.ts game/delivery/*.test.ts game/calls.test.ts game/city.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { buildingTexture, trotroTexture, corrugatedTexture, woodTexture, carPaintTexture } from "./textures";
+import { TROTRO_ROUTES, TROTRO_SLOGANS } from "./world/accra-signs";
+import { textTexture, buildingTexture, trotroTexture, corrugatedTexture, woodTexture, carPaintTexture } from "./textures";
 
 const loader = new GLTFLoader();
 const modelCache = new Map<string, THREE.Group>();
@@ -42,8 +43,15 @@ function lamps(g: THREE.Group, frontZ: number, rearZ: number, y: number, span: n
 }
 function brake(g: THREE.Group, z: number, y: number, w = 1.1) { const m = box(w, .12, .045, new THREE.MeshBasicMaterial({ color: 0x550000 }), 0, y, z, .02); m.name = "brake"; g.add(m); }
 
-export function createTrotroMesh(): THREE.Group {
+export function createTrotroMesh(index = 0): THREE.Group {
   const g = new THREE.Group(); g.name = "Trotro";
+  // Hand-painted rear slogan and a destination board the mate shouts about.
+  const route = TROTRO_ROUTES[index % TROTRO_ROUTES.length];
+  g.userData.route = route;
+  const slogan = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.42), new THREE.MeshBasicMaterial({ map: textTexture(TROTRO_SLOGANS[(index * 3 + 1) % TROTRO_SLOGANS.length], { bg: "#14171a", fg: "#ffd43b", w: 640, h: 140, font: 54 }) }));
+  slogan.position.set(0, 1.86, -2.53); slogan.rotation.y = Math.PI; g.add(slogan);
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.42, 0.2), new THREE.MeshBasicMaterial({ map: textTexture(route.board, { bg: "#f4c542", fg: "#111", w: 512, h: 72, font: 54 }) }));
+  board.position.set(0, 2.25, 2.55); g.add(board);
   const body = paint(0xf7f8f9); body.map = trotroTexture(); const dark = pbr(0x171b1e, .78, .18); const chrome = pbr(0xdfe3e6, .16, .9); const green = pbr(0x268a4b, .46); const yellow = pbr(0xf4c542, .46); const win = glass();
   g.add(box(2.32, 1.75, 5.02, body, 0, 1.38, 0, .22), box(2.34, .36, 4.95, dark, 0, .63, 0, .07), box(2.24, .9, .76, body, 0, 1.15, 2.55, .18));
   const wind = box(2.03, .76, .045, win, 0, 1.82, 2.55, .02); wind.rotation.x = -.12; g.add(wind, box(1.52, .23, .07, yellow, 0, 2.25, 2.51, .03));

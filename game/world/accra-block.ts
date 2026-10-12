@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { textTexture } from "../textures";
+import { SHOP_SIGNS } from "./accra-signs";
+import { WINDOW_GEN, WINDOW_GRID } from "./building-renderer";
 
 /** Art-directed mixed-use roadside buildings: verandas, compounds and shops. */
 export function buildAccraBlock(seed: number): THREE.Group {
@@ -56,7 +58,9 @@ export function buildAccraBlock(seed: number): THREE.Group {
     const y = level * 3.1;
     box(12.3, 0.16, 0.65, 0xe2d9bf, 0, y + 2.98, -1.93);
     for (const x of [-4, 0, 4]) {
-      box(1.45, 1.3, 0.08, 0x233d42, x, y + 1.65, -1.94);
+      // About half the rooms have the light on after dark; one in eight runs a generator.
+      const room = (seed * 13 + level * 7 + (x + 4) * 3) % 8;
+      box(1.45, 1.3, 0.08, room < 4 ? WINDOW_GRID : room === 4 ? WINDOW_GEN : 0x233d42, x, y + 1.65, -1.94);
       box(1.63, 0.1, 0.17, 0xe6dac1, x, y + 2.32, -1.86);
       box(1.63, 0.12, 0.2, 0xe6dac1, x, y + 0.98, -1.82);
       box(0.05, 1.3, 0.1, 0xafb9b1, x, y + 1.65, -1.87);
@@ -77,16 +81,8 @@ export function buildAccraBlock(seed: number): THREE.Group {
   for (const x of [-5.7, -1.9, 1.9, 5.7])
     box(0.22, height, 0.22, 0xe2d9bf, x, height / 2, -1.3);
   box(12.2, 0.12, 1.7, seed % 2 ? 0x476e57 : 0xbc8b40, 0, 2.8, -1.05);
-  const shops = [
-    ["ADOM PHARMACY", "#245847"],
-    ["LEGON BARBER SHOP", "#633e34"],
-    ["AKOSUA PROVISIONS", "#9c7330"],
-    ["MOBILE MONEY", "#b49a25"],
-    ["SHIASHIE TAILOR", "#335167"],
-    ["CHOP BAR · BANKU", "#753e2e"],
-  ];
   for (let i = 0; i < 3; i++) {
-    const shop = shops[(seed + i) % shops.length];
+    const shop = SHOP_SIGNS[(seed * 7 + i * 5) % SHOP_SIGNS.length];
     sign(shop[0], shop[1], (i - 1) * 4, 2.48);
   }
   // A side boundary wall and gated yard make a compound rather than an isolated object.
@@ -108,12 +104,15 @@ export function buildAccraBlock(seed: number): THREE.Group {
     const merged = mergeGeometries(geos, false);
     geos.forEach((g) => g.dispose());
     if (!merged) continue;
+    const glass = color === 0x233d42 || color === WINDOW_GRID || color === WINDOW_GEN;
     const m = new THREE.Mesh(
       merged,
       new THREE.MeshStandardMaterial({
         color,
-        roughness: color === 0x233d42 ? 0.32 : 0.86,
-        metalness: color === 0x233d42 ? 0.12 : 0,
+        roughness: glass ? 0.32 : 0.86,
+        metalness: glass ? 0.12 : 0,
+        emissive: color === WINDOW_GRID ? 0xffc27a : color === WINDOW_GEN ? 0xfff1d0 : 0x000000,
+        emissiveIntensity: 0,
       }),
     );
     m.castShadow = true;

@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { buildAccraBlock } from "./accra-block";
 import { buildDeliveryPlace } from "./delivery-place";
 import { pointInPolygon, distancePointToSegment } from "./coordinates";
-import { textTexture } from "../textures";
+import { billboardTexture, textTexture, vendorUmbrellaTexture } from "../textures";
+import { BILLBOARDS, KIOSK_SIGNS, STREET_FOOD, pickSeeded } from "./accra-signs";
 import type { WorldChunk, WorldRoad } from "./types";
 
 const URBAN_ROADS = new Set([
@@ -280,7 +281,7 @@ function addKiosks(group: THREE.Group, chunk: WorldChunk, mobile: boolean): void
 
     const sign = new THREE.Mesh(
       new THREE.BoxGeometry(2.25, 0.52, 0.09),
-      new THREE.MeshBasicMaterial({ map: textTexture(poi.tags?.shop ? "PROVISIONS" : "MoMo • CASH", { bg: "#e3bd31", fg: "#14251b", font: 44 }) }),
+      new THREE.MeshBasicMaterial({ map: textTexture(pickSeeded(KIOSK_SIGNS, seed), { bg: "#e3bd31", fg: "#14251b", font: 44 }) }),
     );
     sign.position.set(0, 2.7, 0.9);
     kiosk.add(sign);
@@ -292,6 +293,99 @@ function addKiosks(group: THREE.Group, chunk: WorldChunk, mobile: boolean): void
   }
 }
 
+/** Big two-post billboards set back from main roads. */
+function addBillboards(group: THREE.Group, placements: Placement[], mobile: boolean): void {
+  const steel = new THREE.MeshStandardMaterial({ color: 0x3b3f42, roughness: 0.6, metalness: 0.5 });
+  const postGeo = new THREE.CylinderGeometry(0.16, 0.2, 6.6, 6);
+  const frameGeo = new THREE.BoxGeometry(8.4, 4.3, 0.22);
+  const faceGeo = new THREE.PlaneGeometry(8, 4);
+  for (const p of placements) {
+    const [title, sub, bg, fg, accent] = pickSeeded(BILLBOARDS, p.seed);
+    const board = new THREE.Group();
+    for (const x of [-2.6, 2.6]) {
+      const post = new THREE.Mesh(postGeo, steel);
+      post.position.set(x, 3.3, 0);
+      post.castShadow = !mobile;
+      board.add(post);
+    }
+    const frame = new THREE.Mesh(frameGeo, steel);
+    frame.position.y = 7.4;
+    frame.castShadow = !mobile;
+    board.add(frame);
+    const face = new THREE.Mesh(faceGeo, new THREE.MeshBasicMaterial({ map: billboardTexture(title, sub, bg, fg, accent) }));
+    face.position.set(0, 7.4, 0.12);
+    face.name = "billboard-face";
+    const back = new THREE.Mesh(faceGeo, face.material);
+    back.position.set(0, 7.4, -0.12);
+    back.rotation.y = Math.PI;
+    board.add(face, back);
+    board.position.set(p.x, 0, p.z);
+    board.rotation.y = p.yaw + Math.PI / 2 * (rand01(p.seed ^ 0x77) > 0.5 ? 1 : -1);
+    board.name = "accra-billboard";
+    group.add(board);
+  }
+}
+
+/** Kenkey, kelewele and coconut sellers: table, basins, umbrella and a lantern for night. */
+function addFoodStands(group: THREE.Group, placements: Placement[], mobile: boolean): void {
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a33, roughness: 0.92 });
+  const basin = new THREE.MeshStandardMaterial({ color: 0xc9cdd1, roughness: 0.25, metalness: 0.85 });
+  const food = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.9 });
+  const umbrella = new THREE.MeshStandardMaterial({ map: vendorUmbrellaTexture(), roughness: 0.8, side: THREE.DoubleSide });
+  const lantern = new THREE.MeshStandardMaterial({ color: 0xffd8a0, emissive: 0xffb347, emissiveIntensity: 0 });
+  lantern.name = "lantern";
+  const tableGeo = new THREE.BoxGeometry(1.5, 0.08, 0.8);
+  const legGeo = new THREE.BoxGeometry(0.07, 0.8, 0.07);
+  const basinGeo = new THREE.CylinderGeometry(0.34, 0.24, 0.2, 12);
+  const ballGeo = new THREE.SphereGeometry(0.1, 6, 5);
+  const shadeGeo = new THREE.ConeGeometry(1.5, 0.55, 8, 1, true);
+  const poleGeo = new THREE.CylinderGeometry(0.03, 0.03, 2.3, 5);
+  const lampGeo = new THREE.SphereGeometry(0.09, 8, 6);
+  for (const p of placements) {
+    const stand = new THREE.Group();
+    const top = new THREE.Mesh(tableGeo, wood);
+    top.position.y = 0.82;
+    top.castShadow = !mobile;
+    stand.add(top);
+    for (const [x, z] of [[-0.68, -0.34], [0.68, -0.34], [-0.68, 0.34], [0.68, 0.34]]) {
+      const leg = new THREE.Mesh(legGeo, wood);
+      leg.position.set(x, 0.4, z);
+      stand.add(leg);
+    }
+    for (const x of [-0.38, 0.38]) {
+      const b = new THREE.Mesh(basinGeo, basin);
+      b.position.set(x, 0.96, 0);
+      stand.add(b);
+      for (let i = 0; i < 4; i++) {
+        const ball = new THREE.Mesh(ballGeo, food);
+        ball.position.set(x + (i % 2 - 0.5) * 0.16, 1.1 + (i > 1 ? 0.1 : 0), (i % 2 ? 0.07 : -0.07));
+        stand.add(ball);
+      }
+    }
+    const pole = new THREE.Mesh(poleGeo, wood);
+    pole.position.set(0, 1.15, -0.3);
+    stand.add(pole);
+    const shade = new THREE.Mesh(shadeGeo, umbrella);
+    shade.position.set(0, 2.4, -0.3);
+    shade.castShadow = !mobile;
+    stand.add(shade);
+    const lamp = new THREE.Mesh(lampGeo, lantern);
+    lamp.position.set(0.5, 1.02, 0.25);
+    stand.add(lamp);
+    const [label, bg] = pickSeeded(STREET_FOOD, p.seed);
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.3, 0.32),
+      new THREE.MeshBasicMaterial({ map: textTexture(label, { bg, fg: "#3b1d0e", font: 46 }), side: THREE.DoubleSide }),
+    );
+    sign.position.set(0, 0.55, 0.42);
+    stand.add(sign);
+    stand.position.set(p.x, 0, p.z);
+    stand.rotation.y = p.yaw + Math.PI / 2 * (rand01(p.seed ^ 0x99) > 0.5 ? 1 : -1);
+    stand.name = "accra-food-stand";
+    group.add(stand);
+  }
+}
+
 export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THREE.Group {
   const group = new THREE.Group();
   group.name = "osm-street-dressing";
@@ -300,11 +394,15 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
   const poles: Placement[] = [];
   const lights: Placement[] = [];
   const cars: Placement[] = [];
+  const billboards: Placement[] = [];
+  const stands: Placement[] = [];
 
   const maxTrees = mobile ? 36 : 82;
   const maxPoles = mobile ? 18 : 42;
   const maxLights = mobile ? 14 : 34;
   const maxCars = mobile ? 8 : 18;
+  const maxBillboards = mobile ? 1 : 3;
+  const maxStands = mobile ? 4 : 10;
 
   for (const road of chunk.roads) {
     if (!URBAN_ROADS.has(road.highway)) continue;
@@ -323,6 +421,16 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
       if (LIT_ROADS.has(road.highway) && lights.length < maxLights) {
         sampleRoad(road, i, mobile ? 78 : 52, edge + 2.25, p => {
           if (lights.length < maxLights) lights.push(p);
+        });
+      }
+      if (["primary", "secondary", "tertiary"].includes(road.highway) && billboards.length < maxBillboards) {
+        sampleRoad(road, i, 140, edge + 9, p => {
+          if (billboards.length < maxBillboards && rand01(p.seed ^ 0xb1b) > 0.45) billboards.push(p);
+        });
+      }
+      if (stands.length < maxStands) {
+        sampleRoad(road, i, mobile ? 70 : 38, edge + 2.4, p => {
+          if (stands.length < maxStands && rand01(p.seed ^ 0x5f00d) > 0.5) stands.push(p);
         });
       }
       if (!mobile && road.width >= 5.5 && cars.length < maxCars) {
@@ -353,7 +461,7 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
         const samples=[[-8,-8],[8,-8],[-8,2],[8,2],[0,-3]].map(([lx,lz])=>({x:x+Math.cos(yaw)*lx+Math.sin(yaw)*lz,z:z-Math.sin(yaw)*lx+Math.cos(yaw)*lz}));
         if(samples.some(p=>chunk.buildings.some(building=>pointInPolygon(p.x,p.z,building.footprint))))continue;
         if(samples.some(p=>chunk.roads.some(r=>r.points.slice(1).some((b,j)=>distancePointToSegment(p.x,p.z,r.points[j].x,r.points[j].z,b.x,b.z)<r.width/2+.5))))continue;
-        const names=['LEGON NIGHT KITCHEN','AKWAABA CHOP BAR','MADINA PROVISIONS','SHIASHIE FOOD JOINT'];
+        const names=['LEGON NIGHT KITCHEN','AKWAABA CHOP BAR','SWEET MOTHER CHOP BAR','SHIASHIE FOOD JOINT','AUNTIE AKOS WAAKYE','OSU KENKEY HOUSE'];
         const seed=hashString(chunk.key+road.id+i+":"+distance+":"+side);
         const kit=frontage===0?buildDeliveryPlace(names[seed%names.length]):buildAccraBlock(seed);
         kit.name='accra-commercial-frontage';kit.position.set(x,0,z);kit.rotation.y=yaw;group.add(kit);frontage++;occupied.push({x,z});
@@ -379,6 +487,10 @@ export function buildStreetDressingGroup(chunk: WorldChunk, mobile = false): THR
   addStreetlights(group, lights, mobile);
   addParkedCars(group, cars, mobile);
   addKiosks(group, chunk, mobile);
+  const clear = (p: Placement, r: number) => !chunk.buildings.some(b => pointInPolygon(p.x, p.z, b.footprint))
+    && !chunk.roads.some(road => road.points.slice(1).some((b, j) => distancePointToSegment(p.x, p.z, road.points[j].x, road.points[j].z, b.x, b.z) < road.width / 2 + r));
+  addBillboards(group, billboards.filter(p => clear(p, 4.5)), mobile);
+  addFoodStands(group, stands.filter(p => clear(p, 1.2)), mobile);
 
   return group;
 }

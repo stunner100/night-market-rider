@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { WINDOW_GRID, WINDOW_GEN } from "./building-renderer";
 import { accraGroundTexture } from "../textures";
 import { buildRoadGroup, disposeRoadGroup } from "./road-renderer";
 import { buildBuildingGroup, disposeBuildingGroup } from "./building-renderer";
@@ -160,6 +161,40 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
           if(light)light.intensity=0; // only the active mission and base use dynamic shop lights
         }
       }
+    }
+  }
+
+  private lightSets=new WeakMap<THREE.Group,{grid:THREE.MeshStandardMaterial[];gen:THREE.MeshStandardMaterial[];heads:THREE.MeshStandardMaterial[];lanterns:THREE.MeshStandardMaterial[]}>();
+
+  private lightsFor(group:THREE.Group){
+    let set=this.lightSets.get(group);
+    if(set)return set;
+    const found={grid:new Set<THREE.MeshStandardMaterial>(),gen:new Set<THREE.MeshStandardMaterial>(),heads:new Set<THREE.MeshStandardMaterial>(),lanterns:new Set<THREE.MeshStandardMaterial>()};
+    group.traverse(o=>{
+      if(!(o instanceof THREE.Mesh)||!(o.material instanceof THREE.MeshStandardMaterial))return;
+      const m=o.material,hex=m.color.getHex();
+      if(hex===WINDOW_GRID)found.grid.add(m);
+      else if(hex===WINDOW_GEN)found.gen.add(m);
+      else if(o.name==='accra-streetlight-heads')found.heads.add(m);
+      else if(m.name==='lantern')found.lanterns.add(m);
+    });
+    set={grid:Array.from(found.grid),gen:Array.from(found.gen),heads:Array.from(found.heads),lanterns:Array.from(found.lanterns)};
+    this.lightSets.set(group,set);
+    return set;
+  }
+
+  /** Night glow for windows, streetlights and stall lanterns; areas in an outage go dark. */
+  applyNightLights(night:number,powered:(x:number,z:number)=>boolean,time:number){
+    const size=this.manifest?.chunkSize??256;
+    const glow=Math.max(0,(night-0.25)/0.7);
+    for(const chunk of Array.from(this.loaded.values())){
+      const on=powered((chunk.data.cx+.5)*size,(chunk.data.cz+.5)*size);
+      const set=this.lightsFor(chunk.group);
+      for(const m of set.grid)m.emissiveIntensity=on?glow*0.85:0;
+      // Generator windows stay lit (with a little flicker) when the grid is off.
+      for(const m of set.gen)m.emissiveIntensity=glow*(on?0.7:0.75+Math.sin(time*23+chunk.data.cx)*0.08);
+      for(const m of set.heads){m.emissiveIntensity=on?0.26+glow*1.6:0.03;}
+      for(const m of set.lanterns)m.emissiveIntensity=glow*(1.6+Math.sin(time*9+chunk.data.cz)*0.2);
     }
   }
 

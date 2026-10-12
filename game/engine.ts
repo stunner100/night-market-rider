@@ -22,6 +22,10 @@ import { reduceDelivery, initialDelivery, deliveryPhase, type DeliveryEvent, typ
 import { chooseRoadside } from "./world/roadside-placement";
 import { CRASH, DELIVERY, RIDER_HINTS, STREET, pick } from "./voice";
 import { CallDirector, type CallContext, type Incoming, type Trigger } from "./calls";
+import { CityPower } from "./world/city-power";
+import { RainSchedule, RainStreaks } from "./weather";
+import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
+import { RADIO_REACTIONS, STATIONS, radioCaption } from "./radio";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -47,6 +51,7 @@ function compassPoint(heading: number) {
 const CARRY_STAGES = ['returnBike', 'rideCustomer', 'contact', 'calling', 'findCustomer', 'handoff'];
 const _skyResult = new THREE.Color();
 const _white = new THREE.Color(0xffffff);
+const _rainGrey = new THREE.Color(0x6d7680);
 // Pre-allocated Vector3 for exhaust position
 const _exhaustPos = new THREE.Vector3();
 // Pre-allocated Vector3 for menu camera target
@@ -114,6 +119,18 @@ export class Engine {
   private camHeading = 0;
   private spillToastAt = 0;
   private calls = new CallDirector();
+  private shout: THREE.Sprite | null = null;
+  private shoutTarget: THREE.Object3D | null = null;
+  private shoutLeft = -99;
+  private power = new CityPower();
+  private rain = new RainSchedule();
+  private rainStreaks: RainStreaks | null = null;
+  private lightTimer = 0;
+  private checkpointFor = 0;
+  private checkpointGroup: THREE.Group | null = null;
+  private checkpointOfficer: HumanoidRig | null = null;
+  private radioTimer = 4;
+  private radioBeat = 0;
   private crashCount = 0;
   private lateOrderId = -1;
   private ringAt = 0;
@@ -194,7 +211,7 @@ export class Engine {
     }
     if (next.stage === 'offline' || next.stage === 'waiting') {
       if (s.order) s.set({ order: null, orderIndex: s.orderIndex + 1, timeLeft: 0 });
-      this.clearNPCs(); this.world.setMarkers(null, null, 'offline');
+      this.clearNPCs(); this.clearCheckpoint(); this.world.setMarkers(null, null, 'offline');
       if (this.targetLabel) this.targetLabel.visible = false;
       this._osmRoute = [];
       persistProgress();
@@ -215,6 +232,156 @@ export class Engine {
     if (next.stage === 'completed') this.completeDelivery();
     if (before.stage === 'offline' && next.stage === 'waiting') this.raise('online');
     if (next.message && next.message !== before.message) s.pushToast(next.message);
+  }
+
+  private mateShout(vehicle: THREE.Object3D, call: string) {
+    if (this.shoutLeft > -10) return;
+    if (!this.shout) {
+      this.shout = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false }));
+      this.shout.scale.set(4.4, 0.95, 1);
+      this.shout.renderOrder = 10;
+      this.scene.add(this.shout);
+    }
+    (this.shout.material as THREE.SpriteMaterial).map = textTexture(`🗣️ ${call}`, { bg: "#fffdf2", fg: "#1a1a1a", w: 640, h: 136, font: 46, border: "#f4c542" });
+    (this.shout.material as THREE.SpriteMaterial).needsUpdate = true;
+    this.shoutTarget = vehicle;
+    this.shoutLeft = 2.6;
+    useGame.getState().pushToast(`🚐 Mate: “${call}”`);
+  }
+
+  /** Radio: Akwaaba FM → Okponglo Hiplife → Legon Talk → off. */
+  cycleRadio() {
+    const s = useGame.getState();
+    const next = s.radio + 1 >= STATIONS.length ? -1 : s.radio + 1;
+    this.audio.ensure();
+    this.audio.setStation(next);
+    this.radioTimer = 6;
+    const st = STATIONS[next];
+    s.set({ radio: next, radioCaption: st ? `📻 ${st.name} ${st.freq}` : "" });
+  }
+
+  private radioSay(line: string) {
+    const s = useGame.getState();
+    const st = STATIONS[s.radio];
+    if (st) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
+  }
+
+  private clearCheckpoint() {
+    this.checkpointFor = 0;
+    if (this.checkpointGroup) {
+      this._disposeGroup(this.checkpointGroup);
+      this.checkpointGroup.removeFromParent();
+      this.checkpointGroup = null;
+      this.checkpointOfficer = null;
+    }
+    if (useGame.getState().checkpoint) useGame.getState().set({ checkpoint: null });
+  }
+
+  /** Put barrels and an officer at the roadside ~150–230 m along the current route. */
+  private placeCheckpoint() {
+    const route = this._osmRoute;
+    if (!this.osmActive || route.length < 2) return;
+    const want = 150 + Math.random() * 80;
+    let travelled = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i], b = route[i + 1];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (travelled + len < want) { travelled += len; continue; }
+      const k = (want - travelled) / len;
+      const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+      const x = a.x + (b.x - a.x) * k, z = a.z + (b.z - a.z) * k;
+      const g = new THREE.Group();
+      g.position.set(x, 0, z);
+      g.rotation.y = Math.atan2(ux, uz);
+      const orange = new THREE.MeshStandardMaterial({ color: 0xf76707, roughness: 0.6 });
+      const white = new THREE.MeshStandardMaterial({ color: 0xf8f9fa, roughness: 0.6 });
+      for (const [bx, bz] of [[2.2, -1.5], [3.4, 0], [2.2, 1.5]]) {
+        for (let n = 0; n < 3; n++) {
+          const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.3, 12), n % 2 ? white : orange);
+          ring.position.set(bx, 0.15 + n * 0.3, bz);
+          g.add(ring);
+        }
+      }
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: textTexture("POLICE · STOP", { bg: "#1c2a4a", fg: "#fff", font: 52 }), side: THREE.DoubleSide }));
+      sign.position.set(3.4, 1.35, 0);
+      sign.rotation.y = Math.PI; // face riders coming up the route
+      g.add(sign);
+      const officer = buildHumanoid({ skin: this._pick(SKIN_TONES), shirt: 0x1c2a4a, pants: 0x1c2a4a, hair: "cap", capColor: 0x111827, scale: 1.02 });
+      officer.group.position.set(1.6, 0, 0.6);
+      officer.group.rotation.y = -Math.PI / 2;
+      g.add(officer.group);
+      this.checkpointOfficer = officer;
+      this.scene.add(g);
+      this.checkpointGroup = g;
+      useGame.getState().set({ checkpoint: initialCheckpoint() });
+      return;
+    }
+  }
+
+  checkpointAction(e: CheckpointEvent) {
+    const s = useGame.getState();
+    if (!s.checkpoint) return;
+    const next = reduceCheckpoint(s.checkpoint, e);
+    if (next === s.checkpoint) return;
+    s.set({ checkpoint: next });
+    if (next.line !== s.checkpoint.line) s.pushToast(next.line);
+    if (next.stage === s.checkpoint.stage) return;
+    if (e.type === 'settle') s.set({ earnings: Math.max(0, Math.round((s.earnings - CHECKPOINT.settle) * 100) / 100) });
+    if (next.stage === 'fined') {
+      this.audio.blip(2600, 0.25, "square", 0.18); this.audio.blip(2600, 0.4, "square", 0.18, 0.32);
+      s.set({ earnings: Math.max(0, Math.round((s.earnings - CHECKPOINT.fine) * 100) / 100), rating: Math.max(2.5, Math.round((s.rating - 0.2) * 10) / 10) });
+      this.raise('fined');
+    }
+    if (next.stage === 'stopped') this.audio.blip(2600, 0.2, "square", 0.14);
+  }
+
+  /** Rain, dumsor, the checkpoint and the radio — the city's own systems. */
+  private updateCity(dt: number, t: number) {
+    const s = useGame.getState();
+    // Rain
+    if (!this.rainStreaks) this.rainStreaks = new RainStreaks(this.scene, this.isMobile);
+    const rainEvent = this.rain.update(this.shiftSeconds, dt);
+    const wet = this.rain.intensity;
+    this.rainStreaks.update(dt, wet, this.camera.position);
+    this.audio.setRain(wet);
+    if (rainEvent === 'start') { s.set({ raining: true }); s.pushToast("🌧️ Rain dey come! Ride small small."); this.raise('rain'); this.radioSay(RADIO_REACTIONS.rain); }
+    if (rainEvent === 'stop') { s.set({ raining: false }); s.pushToast("🌤️ Rain don stop."); this.radioSay(RADIO_REACTIONS.rainStop); }
+    if (wet > 0) {
+      _skyResult.lerp(_rainGrey, wet * 0.55);
+      if (this.scene.fog instanceof THREE.FogExp2) { this.scene.fog.density += wet * 0.009; this.scene.fog.color.copy(_skyResult); }
+      this.world.sun.intensity *= 1 - wet * 0.6;
+    }
+    // Dumsor
+    const powerEvent = this.power.update(this.shiftSeconds, this.nightF, { x: this.px, z: this.pz });
+    if (powerEvent === 'off') { s.pushToast(`⚡ Dumsor! ECG don take light${s.roadName ? ` for ${s.roadName} side` : ""}.`); this.raise('dumsor'); this.radioSay(RADIO_REACTIONS.dumsor); }
+    if (powerEvent === 'on') { s.pushToast("💡 Light don come back!"); this.radioSay(RADIO_REACTIONS.power); }
+    const dark = !this.power.powered(this.px, this.pz);
+    if (dark !== s.dumsor) s.set({ dumsor: dark });
+    if (dark) { this.world.hemi.intensity *= 0.62; this.world.ambient.intensity *= 0.62; }
+    this.audio.setGenerator(dark ? 1 : 0);
+    this.lightTimer -= dt;
+    if (this.lightTimer <= 0 && this.osmActive) {
+      this.lightTimer = 0.25;
+      this.osmWorld.applyNightLights(this.nightF, (x, z) => this.power.powered(x, z), t);
+    }
+    // Checkpoint
+    if (this.checkpointFor && !this.checkpointGroup && s.order?.id === this.checkpointFor) this.placeCheckpoint();
+    if (this.checkpointGroup && s.checkpoint) {
+      const g = this.checkpointGroup;
+      const distance = Math.hypot(this.px - g.position.x, this.pz - g.position.z);
+      this.checkpointAction({ type: 'tick', dt, distance, speed: s.mounted ? this.speed : 0 });
+      const after = useGame.getState().checkpoint;
+      if (this.checkpointOfficer) {
+        if (after?.stage === 'ahead' && distance < 40) animateWave(this.checkpointOfficer, t);
+        else animateIdle(this.checkpointOfficer, t);
+      }
+      if ((after?.stage === 'cleared' || after?.stage === 'fined') && distance > 60) this.clearCheckpoint();
+    }
+    // Radio captions
+    if (s.radio >= 0) {
+      this.radioTimer -= dt;
+      if (this.radioTimer <= 0) { this.radioTimer = 16; s.set({ radioCaption: radioCaption(s.radio, this.radioBeat++) }); }
+    }
   }
 
   private clockLabel() {
@@ -289,6 +456,7 @@ export class Engine {
   /** Number-key shortcuts for the bag check and the change options. */
   choose(n: number) {
     const s = useGame.getState();
+    if (s.checkpoint?.stage === 'stopped') { this.checkpointAction(n === 1 ? { type: 'showLicence' } : { type: 'settle' }); return; }
     if (s.delivery.stage === 'checkBag') { if (n === 1) this.approveBag(); else if (n === 2) this.reportMissing(); }
     else if (s.delivery.stage === 'payment' && s.order) {
       const amount = orderDetails(s.order).changeOptions[n - 1];
@@ -472,6 +640,7 @@ export class Engine {
     if (e.code === 'KeyF') this.interact();
     if (/^Digit[1-3]$/.test(e.code)) this.choose(Number(e.code.slice(5)));
     if (e.code === 'KeyN') { const s = useGame.getState(); s.set({ phoneOpen: !s.phoneOpen }); }
+    if (e.code === 'KeyR') this.cycleRadio();
     if (e.code === "Enter") {
       const call = useGame.getState().incomingCall;
       if (call) { if (call.answered) this.nextCallLine(); else this.answerCall(); }
@@ -550,6 +719,10 @@ export class Engine {
     this._fuelWarned = false;
     this.crashCount = 0;
     this.lateOrderId = -1;
+    this.power.reset();
+    this.rain.reset(this.shiftSeconds);
+    this.clearCheckpoint();
+    s.set({ raining: false, dumsor: false });
     s.set({ incomingCall: null });
     this.raise(s.tutorialDone ? 'shiftReturn' : 'shiftStart');
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0; this.camHeading = this.heading; this.steerSmooth = 0;
@@ -609,6 +782,8 @@ export class Engine {
     this.dispatchDelivery({ type: 'accept' });
     this.world.setMarkers({ x: s.order.pickupX, z: s.order.pickupZ }, null, "toPickup");
     s.pushToast(DELIVERY.accept(s.order.vendor));
+    // From the second order, some routes pass a police checkpoint.
+    if (s.order.id >= 2 && Math.random() < 0.45) this.checkpointFor = s.order.id;
   }
 
   private _pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -946,7 +1121,7 @@ export class Engine {
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
-    const maxSp = onFoot ? 3.4 : 26 + orderDiff * 2;
+    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity);
     const boostMax = onFoot ? 5.5 : 37;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
@@ -1167,15 +1342,18 @@ export class Engine {
     const hour = (16 + this.shiftSeconds / 60) % 24;
     this.nightF = hour >= 19 || hour < 5 ? .95 : hour >= 17 ? (hour - 17) / 2 * .95 : hour < 7 ? (7 - hour) / 2 * .95 : .06;
 
-    // trotro banner — track timeout for cleanup
+    // Trotro mates lean out and shout the destination when they stop near you.
     for (const c of activeTraffic) {
-      if (c.kind === "trotro" && c.stopped > 2.4 && c.stopped < 2.6) {
-        if (Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z) < 30) {
-          s.set({ banner: "TROTRO STOPPING!" });
-          if (this._bannerTimer) clearTimeout(this._bannerTimer);
-          this._bannerTimer = setTimeout(() => { if (useGame.getState().banner === "TROTRO STOPPING!") useGame.getState().set({ banner: null }); this._bannerTimer = null; }, 1800);
-        }
+      if (c.kind === "trotro" && c.stopped > 2.4 && c.stopped < 2.6 && Math.hypot(this.px - c.mesh.position.x, this.pz - c.mesh.position.z) < 35) {
+        const route = c.mesh.userData.route as { call: string } | undefined;
+        if (route) this.mateShout(c.mesh, route.call);
       }
+    }
+    if (this.shout) {
+      this.shoutLeft -= dt;
+      const target = this.shoutTarget;
+      if (target) this.shout.position.set(target.position.x, 3.9 + Math.sin(this.shoutLeft * 8) * 0.04, target.position.z);
+      this.shout.visible = this.shoutLeft > 0 && !!target?.visible;
     }
 
     // particles: dust + exhaust
@@ -1215,6 +1393,7 @@ export class Engine {
     } else this.updateNav(o, phase);
     this.updateCamera(dt, false);
     this.applySky(this.nightF);
+    this.updateCity(dt, t);
     this.audio.setEngine(s.mounted ? Math.min(1, Math.abs(this.speed) / 37) : -1, this.boostOn);
     if (s.banner && phase === "gameover") s.set({ banner: null });
 
@@ -1481,6 +1660,7 @@ export class Engine {
 
   dispose() {
     this.running = false;
+    this.rainStreaks?.dispose();
     if (this._bannerTimer) { clearTimeout(this._bannerTimer); this._bannerTimer = null; }
     window.removeEventListener("resize", this.resize);
     window.removeEventListener("keydown", this._onKeyDown);

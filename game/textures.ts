@@ -17,7 +17,10 @@ export function textTexture(text: string, opts: { bg?: string; fg?: string; w?: 
   g.fill();
   if (opts.border) { g.strokeStyle = opts.border; g.lineWidth = 6; g.beginPath(); g.roundRect(6, 6, w - 12, h - 12, r - 4); g.stroke(); }
   g.fillStyle = opts.fg ?? "#fff";
-  g.font = `800 ${opts.font ?? 56}px system-ui, sans-serif`;
+  // Shrink long shop names to fit instead of clipping them.
+  let size = opts.font ?? 56;
+  g.font = `800 ${size}px system-ui, sans-serif`;
+  while (size > 14 && g.measureText(text).width > w - 40) { size -= 2; g.font = `800 ${size}px system-ui, sans-serif`; }
   g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(text, w / 2, h / 2 + 2);
   const t = new THREE.CanvasTexture(c);
@@ -648,6 +651,33 @@ export function vendorUmbrellaTexture(): THREE.CanvasTexture {
 
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  cache.set(key, t);
+  return t;
+}
+
+/** Two-line roadside billboard: headline plus a smaller line underneath. */
+export function billboardTexture(title: string, sub: string, bg: string, fg: string, accent: string): THREE.CanvasTexture {
+  const key = JSON.stringify(["billboard", title, sub, bg, fg, accent]);
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const [c, g] = makeCanvas(1024, 512);
+  g.fillStyle = bg; g.fillRect(0, 0, 1024, 512);
+  g.fillStyle = accent; g.fillRect(0, 430, 1024, 82);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  const fit = (text: string, start: number, y: number, color: string, maxW: number) => {
+    let size = start;
+    g.font = `900 ${size}px system-ui, sans-serif`;
+    while (size > 18 && g.measureText(text).width > maxW) { size -= 4; g.font = `900 ${size}px system-ui, sans-serif`; }
+    g.fillStyle = color; g.fillText(text, 512, y);
+  };
+  const words = title.split(" ");
+  const half = Math.ceil(words.length / 2);
+  const lines = title.length > 18 ? [words.slice(0, half).join(" "), words.slice(half).join(" ")] : [title];
+  lines.forEach((line, i) => fit(line, 120, lines.length === 1 ? 200 : 135 + i * 140, fg, 940));
+  fit(sub, 50, 471, bg, 960);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   cache.set(key, t);
   return t;
 }

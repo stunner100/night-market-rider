@@ -2,6 +2,7 @@ import { initialDelivery, type DeliveryState } from "./delivery/machine";
 import { create } from "zustand";
 import { latLonToWorld } from "./world/coordinates";
 import type { ContactId } from "./calls";
+import type { CheckpointState } from "./checkpoint";
 
 export type Phase =
   | "offline"
@@ -92,6 +93,13 @@ export interface GameState {
   inbox: InboxMessage[];
   callLog: CallLogEntry[];
   unread: number;
+  checkpoint: CheckpointState | null;
+  /** Radio station index; -1 is off. */
+  radio: number;
+  radioCaption: string;
+  raining: boolean;
+  /** Rider is inside a dumsor (power cut) area. */
+  dumsor: boolean;
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -151,6 +159,11 @@ export const useGame = create<GameState>((set, get) => ({
   inbox: [],
   callLog: [],
   unread: 0,
+  checkpoint: null,
+  radio: 0,
+  radioCaption: "",
+  raining: false,
+  dumsor: false,
   sound: true,
   nickname: "Rider",
   foodCondition: 100,

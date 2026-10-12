@@ -2,6 +2,8 @@
 import { useGame } from "@/game/store";
 import { cedis, orderDetails, packedItems, prepSeconds } from "@/game/delivery/order-details";
 import { engineRef } from "./GameClient";
+import { CHECKPOINT } from "@/game/checkpoint";
+import { STATIONS } from "@/game/radio";
 
 const TICKET_STAGES = ["vendor", "preparing", "collect", "checkBag", "fixingBag"];
 
@@ -144,5 +146,55 @@ export function InteractionPrompt() {
       {key && <kbd>{key}</kbd>}
       <span>{text || hint}</span>
     </button>
+  );
+}
+
+/** Police stop: show licence (time) or settle am (cedis). */
+export function CheckpointPanel() {
+  const cp = useGame((s) => s.checkpoint);
+  if (!cp || (cp.stage !== "stopped" && cp.stage !== "checking")) return null;
+  const eng = engineRef.current;
+  return (
+    <section className="cash-panel checkpoint-panel" aria-label="Police checkpoint">
+      <p className="eyebrow">👮🏾 POLICE CHECKPOINT</p>
+      <h3>{cp.line.replace(/^Officer: /, "")}</h3>
+      {cp.stage === "checking" ? (
+        <p>Officer dey check your papers… {Math.ceil(cp.remaining)} s</p>
+      ) : (
+        <div className="change-options">
+          <button className="btn btn-primary" onClick={() => eng?.checkpointAction({ type: "showLicence" })}>
+            Show licence <kbd>1</kbd>
+          </button>
+          <button className="btn btn-ghost" onClick={() => eng?.checkpointAction({ type: "settle" })}>
+            “Settle am” · GH₵{CHECKPOINT.settle} <kbd>2</kbd>
+          </button>
+        </div>
+      )}
+      <p className="muted">Ride off without answering and na GH₵{CHECKPOINT.fine} fine.</p>
+    </section>
+  );
+}
+
+/** Radio pill with weather and power status; tap to change station. */
+export function RadioBar() {
+  const radio = useGame((s) => s.radio);
+  const caption = useGame((s) => s.radioCaption);
+  const raining = useGame((s) => s.raining);
+  const dumsor = useGame((s) => s.dumsor);
+  const st = STATIONS[radio];
+  return (
+    <div className="radio-bar">
+      {(raining || dumsor) && (
+        <div className="city-chips">
+          {raining && <span className="chip-rain">🌧️ RAIN</span>}
+          {dumsor && <span className="chip-dumsor">⚡ DUMSOR</span>}
+        </div>
+      )}
+      <button type="button" className="radio-pill" onClick={() => engineRef.current?.cycleRadio()} aria-label="Change radio station">
+        <b>📻 {st ? `${st.freq} ${st.name}` : "RADIO OFF"}</b>
+        {st && caption && <span>{caption}</span>}
+        <kbd>R</kbd>
+      </button>
+    </div>
   );
 }

@@ -6,7 +6,7 @@ import type { MinimapFrame } from "@/game/world/minimap-data";
 import RiderPhone from "./RiderPhone";
 import PhoneCall from "./PhoneCall";
 import { LOADING_LINES } from "@/game/voice";
-import { CashPayment, InteractionPrompt, PickupTicket } from "./DeliveryPanels";
+import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar } from "./DeliveryPanels";
 import { customerDetails } from "@/game/delivery/customer";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
@@ -612,7 +612,7 @@ export default function UI({
           </div>
           <div className="desktop-controls">
             W S accelerate / brake · A D steer · E mount · F interact · N phone
-            · H horn · ESC pause
+            · R radio · H horn · ESC pause
           </div>
           <div ref={joyRef} className="touch-steer">
             ◀ STEER ▶
@@ -679,6 +679,8 @@ export default function UI({
           )}
           <PickupTicket />
           <CashPayment />
+          <CheckpointPanel />
+          <RadioBar />
           <InteractionPrompt />
           {stage === "completed" && s.lastDelivery && (
             <div className="completion">

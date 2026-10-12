@@ -48,7 +48,7 @@ function makeMesh(kind: VehicleKind, index: number): THREE.Group {
     case "taxi":
       return createTaxiMesh();
     case "trotro":
-      return createTrotroMesh();
+      return createTrotroMesh(index);
     case "bus":
       return createBusMesh();
     case "okada":
