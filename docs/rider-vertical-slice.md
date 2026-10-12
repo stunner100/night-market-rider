@@ -108,3 +108,8 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
 - Same rules as before: it plays only while the rider is on the bike, pauses on dismount, pause, mute or station change, ducks while the phone rings, and rejoins the live edge after a long pause. If a stream fails, it looks up the station's current stream in the open Radio Browser directory once, then tells the rider to press R.
 - Stream URLs were checked (HTTP 200, audio/mpeg or audio/aac) on 12 Oct 2026. Streams with tokens can rotate, which the directory lookup covers.
 - Validation: TypeScript and 40 tests pass. Browser, with a normal click on ENTER ACCRA: Hitz FM played straight away; dismounting paused and remounting resumed it; all six live stations played on switching; switching to SoundCloud stopped the live stream. Test identity removed afterwards.
+
+## Built-in music removed, 12 October 2026
+
+- The synthesized background beat and the three fictional stations that used it (Akwaaba FM, Okponglo Hiplife, Legon Talk), along with their DJ captions and rain/dumsor reactions, are gone. Music now comes only from the live Ghanaian stations and the SoundCloud playlist. R cycles Hitz → Joy → Citi → Ghana Music Radio → Adom → Peace → SoundCloud → off.
+- Kept: synthesized sound effects (engine, horn, crash, pickup and delivery chimes, phone ring and text alert, traffic horns, rain, generator hum).

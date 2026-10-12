@@ -25,7 +25,7 @@ import { CallDirector, type CallContext, type Incoming, type Trigger } from "./c
 import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
-import { RADIO_REACTIONS, STATIONS, radioCaption } from "./radio";
+import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
@@ -133,7 +133,6 @@ export class Engine {
   private checkpointGroup: THREE.Group | null = null;
   private checkpointOfficer: HumanoidRig | null = null;
   private radioTimer = 4;
-  private radioBeat = 0;
   private crashCount = 0;
   private lateOrderId = -1;
   private ringAt = 0;
@@ -257,17 +256,9 @@ export class Engine {
     const s = useGame.getState();
     const next = s.radio + 1 >= STATIONS.length ? -1 : s.radio + 1;
     this.audio.ensure();
-    this.audio.setStation(STATIONS[next]?.beat ?? null);
     this.radioTimer = 6;
     const st = STATIONS[next];
     s.set({ radio: next, radioCaption: st ? `📻 ${st.name} ${st.freq}` : "" });
-  }
-
-  private radioSay(line: string) {
-    const s = useGame.getState();
-    const st = STATIONS[s.radio];
-    // Real stations and the SoundCloud playlist don't get our fictional DJ's lines.
-    if (st && !st.soundcloud && !st.stream) { s.set({ radioCaption: `${st.dj}: “${line}”` }); this.radioTimer = 14; }
   }
 
   private clearCheckpoint() {
@@ -348,8 +339,8 @@ export class Engine {
     const wet = this.rain.intensity;
     this.rainStreaks.update(dt, wet, this.camera.position);
     this.audio.setRain(wet);
-    if (rainEvent === 'start') { s.set({ raining: true }); s.pushToast("🌧️ Rain dey come! Ride small small."); this.raise('rain'); this.radioSay(RADIO_REACTIONS.rain); }
-    if (rainEvent === 'stop') { s.set({ raining: false }); s.pushToast("🌤️ Rain don stop."); this.radioSay(RADIO_REACTIONS.rainStop); }
+    if (rainEvent === 'start') { s.set({ raining: true }); s.pushToast("🌧️ Rain dey come! Ride small small."); this.raise('rain'); }
+    if (rainEvent === 'stop') { s.set({ raining: false }); s.pushToast("🌤️ Rain don stop."); }
     if (wet > 0) {
       _skyResult.lerp(_rainGrey, wet * 0.55);
       if (this.scene.fog instanceof THREE.FogExp2) { this.scene.fog.density += wet * 0.009; this.scene.fog.color.copy(_skyResult); }
@@ -357,13 +348,12 @@ export class Engine {
     }
     // Dumsor
     const powerEvent = this.power.update(this.shiftSeconds, this.nightF, { x: this.px, z: this.pz });
-    if (powerEvent === 'off') { s.pushToast(`⚡ Dumsor! ECG don take light${s.roadName ? ` for ${s.roadName} side` : ""}.`); this.raise('dumsor'); this.radioSay(RADIO_REACTIONS.dumsor); }
-    if (powerEvent === 'on') { s.pushToast("💡 Light don come back!"); this.radioSay(RADIO_REACTIONS.power); }
+    if (powerEvent === 'off') { s.pushToast(`⚡ Dumsor! ECG don take light${s.roadName ? ` for ${s.roadName} side` : ""}.`); this.raise('dumsor'); }
+    if (powerEvent === 'on') { s.pushToast("💡 Light don come back!"); }
     const dark = !this.power.powered(this.px, this.pz);
     if (dark !== s.dumsor) s.set({ dumsor: dark });
     if (dark) { this.world.hemi.intensity *= 0.62; this.world.ambient.intensity *= 0.62; }
     this.audio.setGenerator(dark ? 1 : 0);
-    this.audio.setMusicLive(s.mounted);
     this.lightTimer -= dt;
     if (this.lightTimer <= 0 && this.osmActive) {
       this.lightTimer = 0.25;
@@ -387,7 +377,7 @@ export class Engine {
       this.radioTimer -= dt;
       if (this.radioTimer <= 0) {
         this.radioTimer = 16;
-        const caption = radioCaption(s.radio, this.radioBeat++);
+        const caption = radioCaption(s.radio);
         if (caption) s.set({ radioCaption: caption });
       }
     }

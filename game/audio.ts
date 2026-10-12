@@ -1,20 +1,10 @@
-// Tiny synthesized audio: engine, traffic ambience, sfx + afrobeats-inspired loop. No copyrighted assets.
-/** Synth grooves for the fictional radio stations (see game/radio.ts). */
-const BEATS: Record<string, { interval: number; pattern: number[]; bass: number[]; pluck?: number[] }> = {
-  highlife: { interval: 150, pattern: [0, 0, 1, 0, 2, 0, 1, 3], bass: [110, 110, 130.8, 98], pluck: [659, 784, 880, 784, 659, 587, 659, 523] },
-  hiplife: { interval: 125, pattern: [0, 1, 3, 1, 2, 1, 3, 1], bass: [98, 98, 123.5, 87.3] },
-};
+// Tiny synthesized audio: engine, rain, generator and sound effects. Music comes from the live radio.
 export class GameAudio {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
   engOsc: OscillatorNode | null = null;
   engGain: GainNode | null = null;
-  musicGain: GainNode | null = null;
-  musicTimer: number | null = null;
   enabled = true;
-  step = 0;
-  /** Current synth groove; null when the radio is off or streaming. */
-  beat: string | null = null;
   private rainGain: GainNode | null = null;
   private genGain: GainNode | null = null;
   private loops: AudioScheduledSourceNode[] = [];
@@ -37,11 +27,6 @@ export class GameAudio {
     const lp = this.ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 500;
     this.engOsc.connect(this.engGain); this.engGain.connect(lp); lp.connect(this.master);
     this.engOsc.start();
-    // music bus
-    this.musicGain = this.ctx.createGain();
-    this.musicGain.gain.value = 0.35;
-    this.musicGain.connect(this.master);
-    this.startMusic();
     // Rain: looped noise through a soft band-pass.
     const len = this.ctx.sampleRate * 2;
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -67,16 +52,6 @@ export class GameAudio {
   }
   setGenerator(level: number) {
     if (this.ctx && this.genGain) this.genGain.gain.setTargetAtTime(level * 0.05, this.ctx.currentTime, 0.5);
-  }
-  /** Radio only plays on the bike: fade the synth groove in and out. */
-  setMusicLive(on: boolean) {
-    if (this.ctx && this.musicGain) this.musicGain.gain.setTargetAtTime(on ? 0.35 : 0, this.ctx.currentTime, 0.25);
-  }
-  /** Switch the synth groove (null for talk, streaming or off). */
-  setStation(beat: string | null) {
-    this.beat = beat;
-    if (this.musicTimer != null) { clearInterval(this.musicTimer); this.musicTimer = null; }
-    this.startMusic();
   }
 
   setEnabled(on: boolean) { this.enabled = on; if (this.master && this.ctx) this.master.gain.value = on ? 0.5 : 0; }
@@ -135,63 +110,8 @@ export class GameAudio {
   boostSfx() { this.noise(0.4, 0.2); this.blip(220, 0.35, "sawtooth", 0.2); }
   fail() { this.blip(300, 0.25, "sawtooth", 0.3); this.blip(200, 0.4, "sawtooth", 0.3, 0.2); }
 
-  // Per-station groove: highlife (guitar plucks), hiplife (faster, heavier), talk (no beat).
-  startMusic() {
-    if (this.musicTimer != null || !this.ctx || !this.musicGain || this._disposed) return;
-    const groove = this.beat ? BEATS[this.beat] : undefined;
-    if (!groove) return;
-    const pattern = groove.pattern; // drum accents
-    this.musicTimer = window.setInterval(() => {
-      if (!this.enabled || !this.ctx || !this.musicGain) return;
-      const s = this.step++ % 16;
-      const t = this.ctx.currentTime;
-      const drum = (f: number, v: number) => {
-        const o = this.ctx!.createOscillator(); const g = this.ctx!.createGain();
-        o.type = "sine"; o.frequency.setValueAtTime(f, t);
-        o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-        g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-        o.connect(g); g.connect(this.musicGain!); o.start(t); o.stop(t + 0.16);
-      };
-      if (s % 4 === 0) drum(120, 0.5);
-      if (pattern[s % 8] === 1) this.hat(t, 0.12);
-      if (pattern[s % 8] === 2) drum(200, 0.25);
-      if (pattern[s % 8] === 3) this.hat(t, 0.2);
-      const bassNotes = groove.bass;
-      if (s % 4 === 2) this.bass(bassNotes[Math.floor(s / 4) % 4], t);
-      // Highlife guitar: bright triangle plucks over the groove.
-      if (groove.pluck && s % 2 === 1) {
-        const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
-        o.type = "triangle"; o.frequency.value = groove.pluck[(s >> 1) % groove.pluck.length];
-        g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-        o.connect(g); g.connect(this.musicGain); o.start(t); o.stop(t + 0.2);
-      }
-    }, groove.interval);
-  }
-  hat(t: number, v: number) {
-    if (!this.ctx || !this.musicGain) return;
-    const len = 0.05;
-    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * len, this.ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-    const s = this.ctx.createBufferSource(); s.buffer = buf;
-    const hp = this.ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 6000;
-    const g = this.ctx.createGain(); g.gain.value = v;
-    s.connect(hp); hp.connect(g); g.connect(this.musicGain); s.start(t);
-  }
-  bass(f: number, t: number) {
-    if (!this.ctx || !this.musicGain) return;
-    const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
-    o.type = "triangle"; o.frequency.value = f;
-    g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-    o.connect(g); g.connect(this.musicGain); o.start(t); o.stop(t + 0.3);
-  }
-
   dispose() {
     this._disposed = true;
-    if (this.musicTimer != null) {
-      clearInterval(this.musicTimer);
-      this.musicTimer = null;
-    }
     if (this.engOsc) {
       try { this.engOsc.stop(); } catch {}
       this.engOsc.disconnect();
@@ -200,7 +120,6 @@ export class GameAudio {
     for (const node of this.loops) { try { node.stop(); } catch {} node.disconnect(); }
     this.loops = [];
     if (this.engGain) { this.engGain.disconnect(); this.engGain = null; }
-    if (this.musicGain) { this.musicGain.disconnect(); this.musicGain = null; }
     if (this.master) { this.master.disconnect(); this.master = null; }
     if (this.ctx && this.ctx.state !== "closed") {
       this.ctx.close().catch(() => {});

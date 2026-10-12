@@ -57,16 +57,11 @@ test('checkpoint: riding through or leaving mid-stop is fined; settling clears a
   assert.equal(reduceCheckpoint(initialCheckpoint(), { type: 'settle' }).stage, 'ahead', 'cannot settle before stopping');
 });
 
-test('radio: live Ghana stations first; fictional DJs alternate songs and chatter', () => {
-  assert.ok(STATIONS[0].stream?.startsWith('https://'), 'default is a real live station over https');
+test('radio: only real Ghana stations, live first, all over https', () => {
+  assert.ok(STATIONS[0].stream, 'default is a live station');
+  assert.ok(STATIONS.every(st => st.stream || st.soundcloud), 'no synthesized stations');
   assert.ok(STATIONS.filter(st => st.stream).every(st => st.stream!.startsWith('https://')));
-  assert.match(radioCaption(0, 0), /LIVE/);
-  const sc = STATIONS.findIndex(st => st.soundcloud);
-  assert.equal(radioCaption(sc, 0), '', 'the SoundCloud widget supplies now-playing');
-  const highlife = STATIONS.findIndex(st => st.beat === 'highlife');
-  assert.match(radioCaption(highlife, 0), /^♪/);
-  assert.match(radioCaption(highlife, 1), new RegExp(STATIONS[highlife].dj));
-  const talk = STATIONS.findIndex(st => st.name === 'Legon Talk');
-  assert.ok(radioCaption(talk, 0).startsWith(STATIONS[talk].dj));
-  assert.equal(radioCaption(-1, 0), '');
+  assert.match(radioCaption(0), /LIVE/);
+  assert.equal(radioCaption(STATIONS.findIndex(st => st.soundcloud)), '');
+  assert.equal(radioCaption(-1), '');
 });

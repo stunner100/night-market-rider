@@ -118,7 +118,7 @@ export default function SoundCloudRadio() {
   }, [ringing, ready]);
 
   useEffect(() => {
-    if (failed && playlist) useGame.getState().set({ radioCaption: "SoundCloud no dey load — press R for local radio" });
+    if (failed && playlist) useGame.getState().set({ radioCaption: "SoundCloud no dey load — press R for live radio" });
   }, [failed, playlist]);
 
   // Keep the iframe mounted (so the playlist keeps its place) but only show it on this station.
