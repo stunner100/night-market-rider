@@ -1724,3 +1724,144 @@ kbd {
   .ride-telemetry strong { font-size: 46px; }
   .completion h2 { font-size: 44px; }
 }
+
+/* ---- Garage ---- */
+.garage-shade {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 24px;
+  background: linear-gradient(90deg, transparent 30%, rgba(8, 10, 12, 0.55));
+  pointer-events: auto;
+  z-index: 20;
+}
+.garage {
+  box-sizing: border-box;
+  width: min(380px, 100%);
+  padding: 18px 20px 20px;
+  border: 1px solid #ffffff22;
+  border-radius: 18px;
+  background: #121a17f2;
+  color: #fff;
+  box-shadow: 0 20px 60px #000a;
+}
+.garage header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.garage header button,
+.garage-pick button {
+  background: none;
+  border: 0;
+  color: #c5cbc6;
+  font-size: 14px;
+  cursor: pointer;
+}
+.garage-pick {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  text-align: center;
+  margin-top: 6px;
+}
+.garage-pick button {
+  font-size: 30px;
+  color: #f2e35c;
+}
+.garage-pick h2 {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 32px;
+  letter-spacing: 0.02em;
+  color: #f2e35c;
+}
+.garage-dots {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+}
+.garage-dots i,
+.garage-stats dd i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffffff2a;
+}
+.garage-dots i.on { background: #f2e35c; }
+.garage-tag {
+  margin: 10px 0 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #d8e0da;
+}
+.garage-stats {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 14px;
+}
+.garage-stats div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+}
+.garage-stats dt {
+  font-size: 12px;
+  color: #aab4ad;
+}
+.garage-stats dd {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+}
+.garage-stats dd i {
+  width: 30px;
+  height: 8px;
+  border-radius: 3px;
+}
+.garage-stats dd i.on { background: #e8a33c; }
+.garage .btn { width: 100%; }
+.garage .muted { margin: 10px 0 0; font-size: 11px; text-align: center; }
+@media (max-width: 760px) {
+  .garage-shade { padding: 12px; align-items: flex-end; justify-content: center; background: rgba(8, 10, 12, 0.6); }
+}
+
+/* ---- Ride feel: drift and slipstream ---- */
+.ride-feel {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin: 4px 0;
+}
+.ride-feel b {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.feel-drift {
+  background: #e8590c;
+  color: #fff;
+  animation: feel-pop 0.25s ease-out;
+}
+.feel-slip {
+  background: linear-gradient(90deg, #74c0fc calc(var(--slip) * 100%), #74c0fc40 0);
+  color: #0b1d2b;
+}
+@keyframes feel-pop {
+  from { transform: scale(1.3); }
+  to { transform: scale(1); }
+}
+.touch-drift {
+  background: #e8590ccc !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .feel-drift { animation: none; }
+}

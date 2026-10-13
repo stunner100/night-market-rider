@@ -135,3 +135,21 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
 - Destination beacon: 180 m tall, with a hot core inside a soft glow, widening with distance (up to 7×) so the vendor and customer gate read across the city.
 - HUD type: Anton (via `next/font`) for speed, cash, offer pay, payout and titles.
 - Validation: TypeScript and 43 tests pass. Browser at 17:30: strong long shadows from buildings across the road, warm facades and laterite, dusk sky, vignette, grass clumps, and Anton numerals. A paused test with the fill lights lowered confirmed shadows were rendering and had been washed out by fill light before this change.
+
+## Garage, drift and slipstream, 13 October 2026
+
+- `game/bikes.ts`: four bikes, each a set of multipliers on the base handling model.
+
+  | Bike | Price | Character |
+  |---|---|---|
+  | Honda Ace 125 | free | Slower, frugal |
+  | Haojue Express 150 | GH₵150 | Balanced, quick off the line |
+  | Box Scooter 110 | GH₵250 | Slow, but the insulated box cuts food damage 40% and sips fuel |
+  | Apsonic Sport 200 | GH₵400 | Fastest; thirsty, and harder on the food |
+
+  Speed, acceleration, handling, food care and fuel economy each feed the riding physics. Bikes are bought with earnings (the first real money sink); owned and selected bikes are saved with progress.
+- `components/Garage.tsx`: carousel from the welcome screen ("🏍️ Garage") or the phone's Profile tab (offline only). It shows 1–5 stat bars, price or owned state, and buy/ride. The bike behind the menu is repainted live in each bike's livery (`paintBike` recolours the tagged body and trim materials).
+- Drift: hold Shift (or the orange DRIFT touch button) while steering hard above 12 m/s. The turn tightens 1.75×, the tail slides out visually, the bike bleeds speed, kicks up dust with a skid sound, and shakes the food a little. Releasing after 0.7 s or more gives a speed kick (up to +6 m/s) and +12 boost.
+- Slipstream: tuck in 3–16 m directly behind a car, taxi, trotro or bus going your way (not okadas). It builds over ~0.7 s to +14% top speed and −40% fuel use, and fades when you pull out. HUD chips under the speedometer show DRIFT and a filling SLIPSTREAM bar.
+- Fix: riding position was still clamped to the old 3 km map's coordinates, so parts of the new map were unreachable. The soft map edge now does the job.
+- Validation: TypeScript and 46 tests pass (3 new: drift rules and release kick, slipstream geometry and build/fade, garage stats/buying/selecting). Browser: garage carousel and unaffordable state; in a live ride a held drift slid the tail out (0.45 rad), tightened the turn and paid "🔥 Drift! +13 km/h" on release; riding 8 m behind moving traffic built slipstream to full on the HUD, and it fell to 0 after pulling out.

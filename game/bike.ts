@@ -33,6 +33,9 @@ export function buildRider(): RiderRig {
 
   const frame = pbr(0x11151a, .34, .72), graphite = paint(GRAPHITE, .22), graphiteDark = paint(0x151a1f, .27), accent = paint(NM_YELLOW, .25), blue = paint(BIKE_BLUE, .20), chrome = pbr(0xd9dde0, .14, .88), black = pbr(0x0d1013, .84), rubber = pbr(0x050607, .97), gold = pbr(GOLD, .22, .72), engineMat = pbr(0x252a30, .40, .70), exhaustMat = pbr(0xb9aaa0, .26, .78);
 
+  // Livery hooks for the garage: body panels and trim are repainted per bike.
+  blue.userData.livery = true;
+  graphite.userData.trim = true;
   gFrame();
   const { frontWheel, rearWheel } = gWheels();
   const { gripL, gripR, pegL, pegR, footDown } = gControls();
@@ -170,4 +173,14 @@ export function buildRider(): RiderRig {
     const brand = nightMarketTexture(); if (brand) { const rear = new THREE.Mesh(new THREE.PlaneGeometry(.76, .46), new THREE.MeshBasicMaterial({ map: brand, transparent: true, toneMapped: false })); rear.position.set(0, .02, -.315); rear.rotation.y = Math.PI; g.add(rear); }
     return boxLid;
   }
+}
+
+/** Repaint a rider rig in a bike's livery (body panels and trim). */
+export function paintBike(rig: RiderRig, color: number, trim: number) {
+  rig.lean.traverse(o => {
+    if (!(o instanceof THREE.Mesh) || Array.isArray(o.material)) return;
+    const m = o.material as THREE.MeshStandardMaterial;
+    if (m.userData.livery) m.color.setHex(color);
+    else if (m.userData.trim) m.color.setHex(trim);
+  });
 }

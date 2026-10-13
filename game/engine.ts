@@ -25,12 +25,14 @@ import { CallDirector, type CallContext, type Incoming, type Trigger } from "./c
 import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
 import { Horizon } from "./horizon";
+import { DRIFT, SLIP, bikeFor, inSlipstream, initialFeel, stepDrift, stepSlip, type BikeId } from "./bikes";
+import { paintBike } from "./bike";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
 import { addressFor, gateFor, pickSites } from "./world/delivery-sites";
 
-export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
+export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; drift?: boolean; }
 
 interface Particle { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; }
 
@@ -146,6 +148,10 @@ export class Engine {
   private edgeToastAt = -99;
   private horizon: Horizon | null = null;
   private gradeAt = 0;
+  /** Drift slide and slipstream state for the current ride. */
+  private feel = initialFeel();
+  private paintedBike: BikeId | null = null;
+  private skidAt = 0;
   private power = new CityPower();
   private rain = new RainSchedule();
   private rainStreaks: RainStreaks | null = null;
@@ -169,7 +175,7 @@ export class Engine {
     if (!this.carryingFood()) return;
     const s = useGame.getState();
     const before = s.foodCondition;
-    const after = Math.max(0, before - amount * perksFor(s.archetype).spill);
+    const after = Math.max(0, before - amount * perksFor(s.archetype).spill * bikeFor(s.bike).care);
     if (after === before) return;
     s.set({ foodCondition: after });
     const now = performance.now();
@@ -704,6 +710,7 @@ export class Engine {
     if (code === "KeyA" || code === "ArrowLeft") this.input.left = v;
     if (code === "KeyD" || code === "ArrowRight") this.input.right = v;
     if (code === "Space") this.input.boost = v;
+    if (code === "ShiftLeft" || code === "ShiftRight") this.input.drift = v;
   }
 
   private _onVis = () => { if (document.hidden) this.pauseGame(); };
@@ -1237,6 +1244,12 @@ export class Engine {
   update(dt: number) {
     const s = useGame.getState();
     const phase = s.phase;
+    const look = s.garagePreview ?? s.bike;
+    if (look !== this.paintedBike) {
+      const b = bikeFor(look);
+      paintBike(this.rig, b.color, b.trim);
+      this.paintedBike = look;
+    }
 
     // paused: freeze gameplay, keep rendering
     if (s.paused) {
@@ -1279,12 +1292,13 @@ export class Engine {
 
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
-    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity) * perksFor(s.archetype).speed;
-    const boostMax = onFoot ? 5.5 : 37;
+    const bike = bikeFor(s.bike);
+    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity) * perksFor(s.archetype).speed * bike.speed * (1 + SLIP.topSpeed * this.feel.slip);
+    const boostMax = onFoot ? 5.5 : 37 * bike.speed;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
     const target = !canDrive ? 0 : movementTarget(this.input.up, this.input.down, this.speed, this.boostOn ? boostMax : maxSp, onFoot ? 2 : 5.5);
-    const accel = this.input.down ? 34 : 20;
+    const accel = this.input.down ? 34 : 20 * (onFoot ? 1 : bike.accel);
     // Can't accelerate without fuel
     const effectiveTarget = s.fuel <= 0 && !onFoot ? 0 : target;
     if (this.speed < effectiveTarget) this.speed = Math.min(effectiveTarget, this.speed + accel * dt);
@@ -1297,7 +1311,7 @@ export class Engine {
 
     // Fuel consumption
     if (canDrive && !onFoot && Math.abs(this.speed) > 0.5) {
-      const fuelRate = this.boostOn ? BOOST_FUEL_PER_SECOND : CRUISE_FUEL_PER_SECOND;
+      const fuelRate = (this.boostOn ? BOOST_FUEL_PER_SECOND : CRUISE_FUEL_PER_SECOND) * bike.economy * (1 - SLIP.fuelSaving * this.feel.slip);
       s.fuel = Math.max(0, s.fuel - fuelRate * dt);
     }
     // Out of fuel — can't accelerate
@@ -1314,17 +1328,38 @@ export class Engine {
     const steerInput = canDrive ? (this.input.left ? 1 : 0) - (this.input.right ? 1 : 0) : 0;
     const steerRate = onFoot ? 14 : steerInput === 0 ? 7 : 4.5;
     this.steerSmooth += (steerInput - this.steerSmooth) * Math.min(1, steerRate * dt);
+    // Drift: hold Shift (or DRIFT) while steering hard at speed — tighter turn, tail out, speed bleeds; a kick on release.
+    const drifted = stepDrift(this.feel, { drift: !!this.input.drift && !onFoot && canDrive, steer: this.steerSmooth, speed: this.speed }, dt);
+    this.feel = drifted.feel;
+    const drifting = this.feel.drift > 0;
+    if (drifting) {
+      this.speed = Math.max(DRIFT.minSpeed * 0.8, this.speed - DRIFT.decel * dt);
+      this.spill(2 * dt, 'Drifting with food');
+      this.skidAt -= dt;
+      if (this.skidAt <= 0) {
+        this.skidAt = 0.07;
+        this.spawnPuff(this.px - Math.sin(this.heading) * 1.1, 0.25, this.pz - Math.cos(this.heading) * 1.1, 0xd9cdbd, 1, 0.6);
+        this.audio.noise(0.07, 0.05);
+      }
+    }
+    if (drifted.bonus > 0) {
+      this.speed += drifted.bonus;
+      s.boost = Math.min(100, s.boost + 12);
+      s.pushToast(`🔥 Drift! +${Math.round(drifted.bonus * 3.6)} km/h`);
+    }
     if (canDrive && (onFoot || this.speed !== 0)) {
       // Slightly less twitchy at top speed, tighter at low speed for alleys.
       const speedDamp = onFoot ? 1 : 1 - 0.3 * THREE.MathUtils.clamp(Math.abs(this.speed) / 37, 0, 1);
-      this.heading += this.steerSmooth * 2.2 * speedDamp * (onFoot ? 1 : steerAuthority) * dt * (this.boostOn ? 0.8 : 1);
+      const turn = onFoot ? 1 : bike.handling * (drifting ? DRIFT.turnBoost : 1);
+      this.heading += this.steerSmooth * 2.2 * speedDamp * turn * (onFoot ? 1 : steerAuthority) * dt * (this.boostOn ? 0.8 : 1);
     }
     const previousX = this.px, previousZ = this.pz;
     const nx = this.px + Math.sin(this.heading) * this.speed * dt;
     const nz = this.pz + Math.cos(this.heading) * this.speed * dt;
     if (this.osmActive) {
-      this.px = THREE.MathUtils.clamp(nx, -2500, 3800);
-      this.pz = THREE.MathUtils.clamp(nz, -3200, 1600);
+      // The baked map's soft edge (updateCity) keeps the rider in bounds.
+      this.px = nx;
+      this.pz = nz;
     } else {
       this.px = THREE.MathUtils.clamp(nx, -98, 98);
       this.pz = THREE.MathUtils.clamp(nz, -98, 98);
@@ -1355,6 +1390,15 @@ export class Engine {
     }
     const osm = this.osmPlay;
     const traffic = osm ? osm.trafficBodies() : this.world.traffic;
+    // Slipstream: tuck in behind a trotro, bus or car going your way for extra top speed and less fuel.
+    const tucked = !onFoot && traffic.some(c => c.mesh.visible && c.kind !== "okada" && inSlipstream(
+      { x: this.px, z: this.pz, heading: this.heading, speed: this.speed },
+      { x: c.mesh.position.x, z: c.mesh.position.z, yaw: c.mesh.rotation.y }));
+    const slipBefore = this.feel.slip;
+    this.feel = stepSlip(this.feel, tucked, dt);
+    if (slipBefore < 0.95 && this.feel.slip >= 0.95) this.audio.noise(0.35, 0.08);
+    if (Math.abs(this.feel.slip - s.slipstream) > 0.1 || (this.feel.slip === 0) !== (s.slipstream === 0) || drifting !== s.drifting)
+      s.set({ slipstream: Math.round(this.feel.slip * 10) / 10, drifting });
     const walkers = osm ? osm.walkerBodies() : this.world.peds;
     const ramps = osm ? osm.ramps() : this.world.ramps;
     const potholes = osm ? osm.potholes() : this.world.potholes;
@@ -1610,7 +1654,7 @@ export class Engine {
   syncRig(dt: number, t: number, step: number) {
     const mounted = useGame.getState().mounted;
     this.rig.group.position.set(mounted ? this.px : this.parked.x, this.py, mounted ? this.pz : this.parked.z);
-    this.rig.group.rotation.y = mounted ? this.heading : this.parked.heading;
+    this.rig.group.rotation.y = mounted ? this.heading + this.feel.slide : this.parked.heading;
     this.rig.body.visible = mounted;
     this.footRider.group.visible = !mounted;
     if (!mounted) {

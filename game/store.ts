@@ -5,6 +5,7 @@ import type { ContactId } from "./calls";
 import type { CheckpointState } from "./checkpoint";
 import { ARCHETYPES, type ArchetypeId } from "./archetypes";
 import type { DropSite, VendorSite } from "./world/delivery-sites";
+import { BIKES, bikeFor, type BikeId } from "./bikes";
 
 export type Phase =
   | "offline"
@@ -112,6 +113,14 @@ export interface GameState {
   /** Rider type from the onboarding quiz; null until the player takes it. */
   archetype: ArchetypeId | null;
   onboarding: boolean;
+  bike: BikeId;
+  ownedBikes: BikeId[];
+  garageOpen: boolean;
+  /** Bike being looked at in the garage (painted on the menu bike). */
+  garagePreview: BikeId | null;
+  /** Live ride feel for the HUD. */
+  drifting: boolean;
+  slipstream: number;
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -178,6 +187,12 @@ export const useGame = create<GameState>((set, get) => ({
   dumsor: false,
   archetype: null,
   onboarding: false,
+  bike: "ace",
+  ownedBikes: ["ace"],
+  garageOpen: false,
+  garagePreview: null,
+  drifting: false,
+  slipstream: 0,
   sound: true,
   nickname: "Rider",
   foodCondition: 100,
@@ -310,10 +325,27 @@ export function chooseIdentity(nickname: string, archetype: ArchetypeId) {
   persistProgress();
 }
 
+/** Buy a bike with earnings (no-op if owned or too expensive). Returns whether it was bought. */
+export function buyBike(id: BikeId): boolean {
+  const s = useGame.getState();
+  const bike = bikeFor(id);
+  if (s.ownedBikes.includes(id) || s.earnings < bike.price) return false;
+  s.set({ earnings: Math.round((s.earnings - bike.price) * 100) / 100, ownedBikes: [...s.ownedBikes, id], bike: id });
+  persistProgress();
+  return true;
+}
+
+export function selectBike(id: BikeId) {
+  const s = useGame.getState();
+  if (!s.ownedBikes.includes(id)) return;
+  s.set({ bike: id });
+  persistProgress();
+}
+
 export function persistProgress() {
   try {
     const s = useGame.getState();
-    const data = { ...Object.fromEntries(progressKeys.map(k => [k, s[k]])), archetype: s.archetype };
+    const data = { ...Object.fromEntries(progressKeys.map(k => [k, s[k]])), archetype: s.archetype, bike: s.bike, ownedBikes: s.ownedBikes };
     localStorage.setItem('nm_progress_v1', JSON.stringify(data));
   } catch { /* Storage may be unavailable in private browsing. */ }
 }
@@ -326,6 +358,12 @@ export function restoreProgress() {
       else if (typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0) data[key] = raw[key];
     }
     if (typeof raw.archetype === 'string' && raw.archetype in ARCHETYPES) (data as Record<string, unknown>).archetype = raw.archetype;
+    const ids = BIKES.map(b => b.id) as string[];
+    if (Array.isArray(raw.ownedBikes)) {
+      const owned = raw.ownedBikes.filter((id: unknown): id is BikeId => typeof id === 'string' && ids.includes(id));
+      (data as Record<string, unknown>).ownedBikes = owned.includes('ace') ? owned : ['ace', ...owned];
+    }
+    if (typeof raw.bike === 'string' && ids.includes(raw.bike) && (raw.ownedBikes ?? ['ace']).includes(raw.bike)) (data as Record<string, unknown>).bike = raw.bike;
     useGame.getState().set(data);
   } catch { /* Ignore invalid saves. */ }
 }

@@ -6,6 +6,7 @@ import type { MinimapFrame } from "@/game/world/minimap-data";
 import RiderPhone from "./RiderPhone";
 import PhoneCall from "./PhoneCall";
 import Onboarding from "./Onboarding";
+import Garage from "./Garage";
 import { ARCHETYPES } from "@/game/archetypes";
 import { LOADING_LINES } from "@/game/voice";
 import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar } from "./DeliveryPanels";
@@ -353,7 +354,7 @@ export default function UI({
     };
   }, [ready, s.phase === "menu"]);
 
-  const hold = (key: "up" | "down" | "boost") => ({
+  const hold = (key: "up" | "down" | "boost" | "drift") => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.preventDefault();
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -457,6 +458,7 @@ export default function UI({
             {s.archetype && (
               <button onClick={() => s.set({ onboarding: true })}>Change who you be</button>
             )}
+            <button onClick={() => s.set({ garageOpen: true })}>🏍️ Garage</button>
             <button onClick={() => setShowHelp(true)}>How e dey work</button>
             <button onClick={() => setShowBoard(true)}>Top riders</button>
             <button
@@ -605,6 +607,14 @@ export default function UI({
               {s.mounted ? s.speedKmh : Math.round(s.speedKmh / 3.6)}
             </strong>
             <span>{s.mounted ? "KM/H" : "M/S · ON FOOT"}</span>
+            {s.mounted && (s.drifting || s.slipstream > 0) && (
+              <div className="ride-feel">
+                {s.drifting && <b className="feel-drift">DRIFT</b>}
+                {s.slipstream > 0 && (
+                  <b className="feel-slip" style={{ ["--slip" as string]: s.slipstream }}>SLIPSTREAM</b>
+                )}
+              </div>
+            )}
             <div className="fuel-meter">
               <i style={{ width: `${s.fuel}%` }} />
             </div>
@@ -626,8 +636,8 @@ export default function UI({
             ))}
           </div>
           <div className="desktop-controls">
-            W S accelerate / brake · A D steer · E mount · F interact · N phone
-            · R radio · H horn · ESC pause
+            W S accelerate / brake · A D steer · Shift drift · E mount · F interact
+            · N phone · R radio · H horn · ESC pause
           </div>
           <div ref={joyRef} className="touch-steer">
             ◀ STEER ▶
@@ -642,6 +652,11 @@ export default function UI({
             <div className="touch-btn" {...hold("boost")}>
               {s.mounted ? "BOOST" : "RUN"}
             </div>
+            {s.mounted && (
+              <div className="touch-btn touch-drift" {...hold("drift")}>
+                DRIFT
+              </div>
+            )}
           </div>
           {stage === "offer" && s.order && (
             <section className="order-offer" aria-label="New delivery offer">
@@ -727,6 +742,7 @@ export default function UI({
         </>
       )}
       {s.onboarding && s.phase === "menu" && <Onboarding />}
+      {s.garageOpen && <Garage />}
       {s.paused && (
         <div className="modal-shade">
           <section className="dialog">

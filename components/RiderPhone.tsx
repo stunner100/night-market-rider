@@ -224,6 +224,9 @@ export default function RiderPhone() {
                 </p>
                 <p>{(s.distanceRidden / 1000).toFixed(1)} km ridden</p>
                 <p>Legon · Okponglo · Shiashie side</p>
+                <button className="btn btn-ghost" disabled={!!s.order} onClick={() => s.set({ garageOpen: true, phoneOpen: false })}>
+                  🏍️ GARAGE{s.order ? " · finish the order first" : ""}
+                </button>
               </>
             )}
             {tab === "Performance" && (
