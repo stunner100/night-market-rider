@@ -646,6 +646,8 @@ export interface RiderPose {
   braking: boolean;
   boost: boolean;
   interact: "none" | "pickup" | "deliver";
+  /** Extra forward lean for this bike's riding position (sport bikes tuck, scooters sit up). */
+  crouch?: number;
 }
 
 export interface RiderAnchors {
@@ -759,7 +761,7 @@ export function poseRider(h: HumanoidRig, a: RiderPose, anchors: RiderAnchors) {
   const stopped = a.stopped;
   const braking = a.braking && !stopped;
   const boost = a.boost && !stopped;
-  let pitch = stopped ? 0.08 : braking ? 0.02 : boost ? 0.40 : 0.22;
+  let pitch = (stopped ? 0.08 : braking ? 0.02 : boost ? 0.40 : 0.22) + (a.crouch ?? 0) * (stopped ? 0.5 : 1);
   const freq = stopped ? 2.2 : 8 + Math.min(7, Math.abs(a.speed) * 0.35);
   const amp = stopped ? 0.010 : 0.009 + Math.min(0.016, Math.abs(a.speed) * 0.00065);
   pitch += Math.sin(a.t * freq) * amp;

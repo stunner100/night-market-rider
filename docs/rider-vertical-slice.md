@@ -162,3 +162,19 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
   - Box Scooter 110: step-through leg shield, nose with headlamp, floorboard, rounded rear body, CVT case, small wheels, 15% larger box; the standard engine is hidden.
   - Apsonic Sport 200: nose fairing with twin lamps, tinted windscreen, side fairings with orange stripes, belly pan, angular tank and tail, orange rims, compact box.
 - Validation: TypeScript and 46 tests pass. Browser: the menu bike switched between all four models through the garage preview with no console errors.
+
+## Hand-built bikes at real proportions, 13 October 2026
+
+- `game/bike.ts` was rewritten. The old bike was about 2.6 m between axles with ~0.8 m wheels (about twice real size), and every garage bike was a kit on that one frame. Each model is now built separately from real dimensions (wheelbase, wheel diameter, seat height, bar and peg positions):
+
+  | Model | Wheelbase | Wheels | Build |
+  |---|---|---|---|
+  | Honda Ace 125 | 1.27 m | 18″ laced wire, drum brakes | Single-cradle frame, red teardrop tank with chrome badges and knee pads, side covers, flat bench, chrome grab rail and fenders, round chrome headlamp and round mirrors, finned single, low chrome exhaust |
+  | Haojue Express 150 | 1.30 m | 17″ five-spoke cast, front disc | Diamond frame, blue angular tank with shrouds and stripe, step seat, plastic fenders, square headlamp, crash bars, upswept muffler |
+  | Box Scooter 110 | 1.25 m | 10″ | Underbone spine, leg shield with white inner panel, nose headlamp, floorboard (feet rest on it), rounded rear body over a swing-arm CVT unit |
+  | Apsonic Sport 200 | 1.36 m | 17″ cast, wide tyres | Twin-spar frame, nose fairing with twin lamps and tinted screen, side fairings with orange stripes, belly pan, gold forks, red mono-shock, clip-on bars, rear-set pegs, raised tail |
+
+- Riding position follows the bike: the rider's arms and legs reach that bike's grips and pegs (existing IK), the hips sit on its seat, and a per-bike `crouch` tilts the torso (sport bike tucks, scooter sits up).
+- Swapping bikes rebuilds the whole rig (`Engine.swapBike`), keeping position, heading and the sun target and contact shadow attached to it. Wheels spin at speed / radius, so scooter wheels turn faster.
+- The delivery box (~45 cm tall) sits on a rack just above the rear of the seat, scaled per bike (larger on the scooter, compact on the sport bike).
+- Validation: TypeScript and 46 tests pass. Browser side views of all four models confirm distinct silhouettes, correct seating and posture, and the box on its rack, with no console errors.

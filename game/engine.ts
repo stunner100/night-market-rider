@@ -26,7 +26,7 @@ import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
 import { Horizon } from "./horizon";
 import { DRIFT, SLIP, bikeFor, inSlipstream, initialFeel, stepDrift, stepSlip, type BikeId } from "./bikes";
-import { setBikeModel } from "./bike";
+
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
@@ -433,6 +433,26 @@ export class Engine {
         if (caption) s.set({ radioCaption: caption });
       }
     }
+  }
+
+  /** Replace the whole bike (frame, wheels, controls, rider seating) with another model, keeping its place and attachments. */
+  swapBike(id: BikeId) {
+    const old = this.rig;
+    const fresh = buildRider(id);
+    fresh.group.position.copy(old.group.position);
+    fresh.group.rotation.copy(old.group.rotation);
+    fresh.group.visible = old.group.visible;
+    fresh.body.visible = old.body.visible;
+    // Keep things other systems hung on the rig (sun target, contact shadow).
+    for (const child of [...old.group.children]) if (child !== old.lean) fresh.group.add(child);
+    fresh.group.traverse(o => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) o.material.envMapIntensity = o.name === "wheel" || o.name === "wheel-rim" ? 0.38 : 0.62;
+    });
+    this.scene.remove(old.group);
+    this._disposeGroup(old.group);
+    this.scene.add(fresh.group);
+    this.rig = fresh;
+    this.world.headlight = fresh.headlight;
   }
 
   private clockLabel() {
@@ -1247,7 +1267,7 @@ export class Engine {
     const look = s.garagePreview ?? s.bike;
     if (look !== this.paintedBike) {
       const b = bikeFor(look);
-      setBikeModel(this.rig, look, b.rim);
+      if (look !== this.rig.model) this.swapBike(b.id);
       this.paintedBike = look;
     }
 
@@ -1676,8 +1696,9 @@ export class Engine {
     this.rig.lean.rotation.x = this.py > 0 ? -0.12 : THREE.MathUtils.clamp(-this.speed * 0.002, -0.06, 0) + (this.bump > 0 ? Math.sin(t * 40) * 0.02 : 0);
     this.bump = Math.max(0, this.bump - (step || 0.016));
     // wheels
-    this.rig.frontWheel.rotation.x += this.speed * (step || 0.016) * 2;
-    this.rig.rearWheel.rotation.x += this.speed * (step || 0.016) * 2;
+    // Wheels roll at speed / radius (scooters spin their small wheels faster).
+    this.rig.frontWheel.rotation.x += this.speed * (step || 0.016) / this.rig.frontWheel.position.y;
+    this.rig.rearWheel.rotation.x += this.speed * (step || 0.016) / this.rig.rearWheel.position.y;
     // Drop the hips when stopped so the left foot can reach the road. Tuck on boost.
     const sit = this.boostOn ? -0.08 : stopped ? -0.07 : 0;
     const sitK = Math.min(1, (step || 0.016) * 6);
@@ -1691,7 +1712,7 @@ export class Engine {
       const interact = phase === "pickup" ? "pickup" : phase === "deliver" ? "deliver" : "none";
       poseRider(r, {
         t, dt: step || 0.016, steer, speed: this.speed, stopped,
-        braking: this.input.down, boost: this.boostOn, interact,
+        braking: this.input.down, boost: this.boostOn, interact, crouch: this.rig.crouch,
       }, {
         gripL: this.rig.gripL,
         gripR: this.rig.gripR,
