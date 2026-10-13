@@ -178,6 +178,7 @@ export class DestinationBeacon {
   readonly group = new THREE.Group();
   private material: THREE.ShaderMaterial;
   private ring: THREE.Mesh;
+  private glow: THREE.Mesh;
 
   constructor() {
     this.material = new THREE.ShaderMaterial({
@@ -185,9 +186,9 @@ export class DestinationBeacon {
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
       fragmentShader: `uniform vec3 uColor; uniform float uTime; varying vec2 vUv;
         void main(){
-          float fade = pow(1.0 - vUv.y, 1.6);
-          float pulse = 0.75 + 0.25 * sin(uTime * 3.0 - vUv.y * 18.0);
-          gl_FragColor = vec4(uColor, fade * pulse * 0.55);
+          float fade = pow(1.0 - vUv.y, 1.3) * smoothstep(0.0, 0.02, vUv.y + 0.02);
+          float pulse = 0.78 + 0.22 * sin(uTime * 3.0 - vUv.y * 40.0);
+          gl_FragColor = vec4(uColor, fade * pulse * 0.6);
         }`,
       transparent: true,
       depthWrite: false,
@@ -195,16 +196,22 @@ export class DestinationBeacon {
       side: THREE.DoubleSide,
       fog: false,
     });
-    const column = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 70, 20, 1, true), this.material);
-    column.position.y = 35;
+    // A hot core inside a soft outer glow, tall enough to read across the city.
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 180, 20, 1, true), this.material);
+    column.position.y = 90;
     column.renderOrder = 4;
+    this.glow = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 180, 20, 1, true), this.material.clone());
+    (this.glow.material as THREE.ShaderMaterial).uniforms = { uColor: this.material.uniforms.uColor, uTime: this.material.uniforms.uTime };
+    (this.glow.material as THREE.ShaderMaterial).fragmentShader = this.material.fragmentShader.replace("* 0.6)", "* 0.18)");
+    this.glow.position.y = 90;
+    this.glow.renderOrder = 4;
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(2.2, 2.7, 40),
       new THREE.MeshBasicMaterial({ color: 0xf2e35c, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
     );
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.13;
-    this.group.add(column, this.ring);
+    this.group.add(column, this.glow, this.ring);
     this.group.name = "destination-beacon";
     this.group.visible = false;
   }
@@ -217,8 +224,11 @@ export class DestinationBeacon {
     (this.ring.material as THREE.MeshBasicMaterial).color.setHex(color);
     const s = 1 + Math.sin(time * 4) * 0.08;
     this.ring.scale.set(s, s, s);
-    // Thin the column up close so it doesn't wash out the interaction view.
-    this.group.children[0].scale.set(riderDistance < 25 ? 0.6 : 1, 1, riderDistance < 25 ? 0.6 : 1);
+    // Thin up close so it doesn't wash out the interaction view; widen far away so it stays readable.
+    const w = riderDistance < 25 ? 0.6 : Math.min(7, Math.max(1, riderDistance / 80));
+    this.group.children[0].scale.set(w, 1, w);
+    this.glow.scale.set(w, 1, w);
+    this.glow.visible = riderDistance > 25;
   }
 
   hide() {

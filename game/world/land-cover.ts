@@ -106,6 +106,7 @@ export function buildVegetationGroup(chunk: WorldChunk, cover: CoverArea[], chun
       : roll < 0.12 ? "palm" : roll < 0.5 ? "tree" : "bush";
     plants.push({ x, z, s: 0.75 + r() * 0.6, kind });
   }
+  addGroundDetail(group, chunk, chunkSize, water, r, mobile);
   if (!plants.length) return group;
 
   const dummy = new THREE.Object3D();
@@ -138,5 +139,52 @@ export function disposeVegetationGroup(group: THREE.Group): void {
     if (!(o instanceof THREE.Mesh)) return;
     o.geometry.dispose();
     (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+  });
+}
+
+/** Dry grass tufts, stones and "pure water" sachets on open ground and verges. */
+function addGroundDetail(group: THREE.Group, chunk: WorldChunk, chunkSize: number, water: CoverArea[], r: () => number, mobile: boolean) {
+  const x0 = chunk.cx * chunkSize, z0 = chunk.cz * chunkSize;
+  const tufts: WorldPoint[] = [], stones: WorldPoint[] = [], litter: WorldPoint[] = [];
+  const nearRoad = (x: number, z: number) => {
+    let best = Infinity;
+    for (const road of chunk.roads) {
+      const d = distancePointToSegment(x, z, road.points[0].x, road.points[0].z, road.points[1].x, road.points[1].z) - road.width / 2;
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  const samples = mobile ? 220 : 650;
+  for (let i = 0; i < samples; i++) {
+    const x = x0 + r() * chunkSize, z = z0 + r() * chunkSize;
+    const edge = nearRoad(x, z);
+    if (edge < 1.3) continue;
+    if (chunk.buildings.some(b => pointInPolygon(x, z, b.footprint)) || water.some(a => pointInPolygon(x, z, a.points))) continue;
+    const roll = r();
+    // Litter gathers along the verges; tufts everywhere; stones now and then.
+    if (edge < 4 && roll < 0.22) litter.push({ x, z });
+    else if (roll < 0.08) stones.push({ x, z });
+    else tufts.push({ x, z });
+  }
+  const dummy = new THREE.Object3D();
+  const place = (geo: THREE.BufferGeometry, mat: THREE.Material, pts: WorldPoint[], fn: (p: WorldPoint, i: number) => void) => {
+    if (!pts.length) { geo.dispose(); mat.dispose(); return; }
+    const mesh = new THREE.InstancedMesh(geo, mat, pts.length);
+    pts.forEach((p, i) => { fn(p, i); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  };
+  // Low, ragged clumps of dry grass (wide and squat, olive-straw) — not cones.
+  place(new THREE.IcosahedronGeometry(0.32, 0), new THREE.MeshStandardMaterial({ color: 0x7d7a3f, roughness: 1, flatShading: true }), tufts, (p, i) => {
+    const s = 0.7 + ((i * 37) % 10) / 12;
+    dummy.position.set(p.x, 0.05 * s, p.z); dummy.rotation.set(i * 0.3, i, 0); dummy.scale.set(s * 1.3, s * 0.45, s * 1.1);
+  });
+  place(new THREE.DodecahedronGeometry(0.22, 0), new THREE.MeshStandardMaterial({ color: 0x8c7a66, roughness: 0.95, flatShading: true }), stones, (p, i) => {
+    const s = 0.6 + ((i * 53) % 10) / 9;
+    dummy.position.set(p.x, 0.06 * s, p.z); dummy.rotation.set(i, i * 2, 0); dummy.scale.set(s * 1.3, s * 0.7, s);
+  });
+  place(new THREE.BoxGeometry(0.16, 0.012, 0.11), new THREE.MeshStandardMaterial({ color: 0xe8f1f7, roughness: 0.4 }), litter, (p, i) => {
+    dummy.position.set(p.x, 0.02, p.z); dummy.rotation.set(0, i * 1.7, 0); dummy.scale.setScalar(1);
   });
 }

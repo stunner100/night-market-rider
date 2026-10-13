@@ -64,6 +64,8 @@ export default function GameClient() {
   return (
     <div id="game-root">
       <canvas id="game-canvas" ref={canvasRef} />
+      <div className="grade-overlay" aria-hidden="true" />
+      <div className="vignette-overlay" aria-hidden="true" />
       <UI ready={ready} progress={progress} />
       <a
         href="https://www.openstreetmap.org/copyright"

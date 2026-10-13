@@ -52,13 +52,14 @@ export function applyVisualQuality(engine: Engine) {
   // whole map. This gives much cleaner rider/vehicle/building shadows.
   const sun = world.sun;
   sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
-  const extent = mobile ? 44 : 54;
+  // Wide enough to hold long late-afternoon shadows around the rider.
+  const extent = mobile ? 52 : 72;
   sun.shadow.camera.left = -extent;
   sun.shadow.camera.right = extent;
   sun.shadow.camera.top = extent;
   sun.shadow.camera.bottom = -extent;
   sun.shadow.camera.near = 8;
-  sun.shadow.camera.far = 210;
+  sun.shadow.camera.far = 260;
   sun.shadow.bias = -0.00025;
   sun.shadow.normalBias = 0.018;
   sun.shadow.camera.updateProjectionMatrix();

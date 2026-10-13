@@ -24,6 +24,7 @@ import { CRASH, DELIVERY, RIDER_HINTS, STREET, pick } from "./voice";
 import { CallDirector, type CallContext, type Incoming, type Trigger } from "./calls";
 import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
+import { Horizon } from "./horizon";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
@@ -55,6 +56,14 @@ const _skyResult = new THREE.Color();
 const _white = new THREE.Color(0xffffff);
 const _rainGrey = new THREE.Color(0x6d7680);
 const _steamPos = new THREE.Vector3();
+
+/** Brief full-screen flash (CSS) for hits and payouts. */
+function flashScreen(kind: "hit" | "gold" | "paid") {
+  const root = document.documentElement;
+  root.dataset.flash = "";
+  void root.offsetWidth; // restart the animation
+  root.dataset.flash = kind;
+}
 /** The Night Market shift starts at golden hour; night falls about two minutes in. */
 const SHIFT_START_HOUR = 17.5;
 // Pre-allocated Vector3 for exhaust position
@@ -135,6 +144,8 @@ export class Engine {
   private prepText = "";
   private steamAt = 0;
   private edgeToastAt = -99;
+  private horizon: Horizon | null = null;
+  private gradeAt = 0;
   private power = new CityPower();
   private rain = new RainSchedule();
   private rainStreaks: RainStreaks | null = null;
@@ -366,6 +377,20 @@ export class Engine {
       _skyResult.lerp(_rainGrey, wet * 0.55);
       if (this.scene.fog instanceof THREE.FogExp2) { this.scene.fog.density += wet * 0.009; this.scene.fog.color.copy(_skyResult); }
       this.world.sun.intensity *= 1 - wet * 0.6;
+      this.horizon?.update(this.camera, _skyResult, this.nightF);
+    }
+    // Colour grade: warm golden hour, cool night, grey rain, a heavier vignette in dumsor.
+    this.gradeAt -= dt;
+    if (this.gradeAt <= 0) {
+      this.gradeAt = 0.25;
+      const h = s.hour;
+      const golden = h >= 16 && h < 19 ? Math.min(1, (h - 16) / 1.2) * Math.min(1, (19 - h) / 0.7) : 0;
+      const tint = wet > 0.05 ? "120, 135, 150" : golden > 0.05 ? "255, 150, 60" : this.nightF > 0.5 ? "70, 70, 160" : "255, 220, 170";
+      const strength = Math.max(golden * 0.26, this.nightF > 0.5 ? 0.2 : 0.06, wet * 0.22);
+      const style = document.documentElement.style;
+      style.setProperty("--grade-rgb", tint);
+      style.setProperty("--grade-a", strength.toFixed(3));
+      style.setProperty("--vignette-a", (0.32 + this.nightF * 0.18 + (s.dumsor ? 0.22 : 0)).toFixed(3));
     }
     // Dumsor
     const powerEvent = this.power.update(this.shiftSeconds, this.nightF, { x: this.px, z: this.pz });
@@ -528,6 +553,7 @@ export class Engine {
 
     // Procedural tropical sky driven by the shift clock.
     this.sky = new Sky();
+    this.horizon = new Horizon(this.scene, this.isMobile);
     this.scene.add(this.sky.mesh);
 
     this.world = buildWorld(this.scene, this.isMobile);
@@ -1113,6 +1139,7 @@ export class Engine {
     const s = useGame.getState();
     if (this.crashCool > 0) return;
     this.crashCool = 1.6;
+    flashScreen("hit");
     this.raise('crash', { crashes: ++this.crashCount });
     this.speed = -Math.min(3, Math.abs(this.speed) * 0.15); // slight bounce-back
     this.shake = 1.2;
@@ -1177,6 +1204,7 @@ export class Engine {
     this.raise('delivered', { payout: reward, earnings: useGame.getState().earnings, deliveries });
     if (noCrash && condition >= 95) this.raise('perfect');
     if (newStreak === 3) this.raise('streak3');
+    flashScreen(noCrash && condition >= 95 ? "gold" : "paid");
     if (noCrash && condition >= 95) s.pushToast(DELIVERY.perfect);
     else if (noCrash) s.pushToast(DELIVERY.clean);
     this.world.setMarkers(null, null, "delivered");
@@ -1470,7 +1498,8 @@ export class Engine {
     if (s.mounted) s.set({ distanceRidden: s.distanceRidden + Math.hypot(this.px - previousX, this.pz - previousZ) });
     this.shiftSeconds += dt;
     const hour = (SHIFT_START_HOUR + this.shiftSeconds / 60) % 24;
-    this.nightF = hour >= 19 || hour < 5 ? .95 : hour >= 17 ? (hour - 17) / 2 * .95 : hour < 7 ? (7 - hour) / 2 * .95 : .06;
+    // Dusk starts at 16:00 so the 17:30 shift start sits in the golden-orange part of the sky.
+    this.nightF = hour >= 19 || hour < 5 ? .95 : hour >= 16 ? Math.max(.06, (hour - 16) / 3 * .95) : hour < 7 ? (7 - hour) / 2 * .95 : .06;
 
     // Trotro mates lean out and shout the destination when they stop near you.
     for (const c of activeTraffic) {
@@ -1686,13 +1715,23 @@ export class Engine {
   }
 
   applySky(night: number) {
-    // Traverse sun across tropical sky (golden afternoon -> low sunset -> night)
-    const sunX = 70 + night * 30;
-    const sunY = Math.max(14, 95 - night * 85);
-    const sunZ = 40 - night * 30;
+    // The sun follows the shift clock: rises in the east, sets in the west, low and golden
+    // late in the afternoon so buildings, trotros and the rider cast long shadows.
+    // After dark a dim moon takes over from high in the south-east.
+    const hour = useGame.getState().hour;
+    const dayT = (hour - 6) / 12;
+    // Held at ~16° until close to sunset: lower, and grazing light flattens the ground and kills shadow contrast.
+    const elevation = dayT > 0 && dayT < 1 ? Math.max(hour < 18.4 ? 0.28 : 0.08, Math.sin(Math.PI * dayT) * 1.2) : 0;
+    const azimuth = Math.PI * Math.min(1, Math.max(0, dayT));
+    const moon = elevation <= 0.075;
+    const el = moon ? 0.95 : Math.min(1.2, elevation);
+    const az = moon ? 0.6 : azimuth;
+    const sunX = Math.cos(az) * Math.cos(el) * 120;
+    const sunY = Math.sin(el) * 120;
+    const sunZ = 25 + Math.sin(az) * 18;
     this.world.sun.position.set((this.osmActive ? this.px : 0) + sunX, sunY, (this.osmActive ? this.pz : 0) + sunZ);
     if (this.sky) {
-      _sunDir.set(sunX, night > 0.75 ? sunY * 0.25 : sunY, sunZ);
+      _sunDir.set(moon ? -sunX : sunX, moon ? -10 : sunY, sunZ);
       this.sky.setTime(night, _sunDir, performance.now() / 1000);
       this.sky.mesh.position.copy(this.camera.position);
       _skyResult.copy(this.sky.horizon);
@@ -1700,13 +1739,17 @@ export class Engine {
     }
     this.scene.background = _skyResult;
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(_skyResult);
-    this.world.sun.intensity = 2.1 - night * 2.0;
+    // Golden hour: strong low sun, less sky fill, so shadows read long and dark.
+    const golden = hour >= 15.5 && hour < 18.8 ? Math.min(1, (hour - 15.5) / 1.2) * Math.min(1, (18.8 - hour) / 0.5) : 0;
+    this.world.sun.intensity = moon ? 0.32 : 2.3 - night * 1.2 + golden * 0.6;
+    if (moon) this.world.sun.color.setHex(0x9fb4e8);
     // Real night: the street is lit by lamps, windows and headlights, not the sky.
-    this.world.hemi.intensity = 0.75 - night * 0.6;
-    this.world.ambient.intensity = 0.45 - night * 0.37;
+    this.world.hemi.intensity = (0.75 - night * 0.6) * (1 - golden * 0.5);
+    this.world.ambient.intensity = (0.45 - night * 0.37) * (1 - golden * 0.55);
     // Image-based reflections otherwise keep the city lit like noon after dark.
-    this.scene.environmentIntensity = 1 - night * 0.86;
+    this.scene.environmentIntensity = (1 - night * 0.86) * (1 - golden * 0.5);
     this.world.hemi.color.copy(_skyResult).lerp(_white, 0.45);
+    this.horizon?.update(this.camera, _skyResult, night);
   }
 
   updateCamera(dt: number, menu: boolean) {
@@ -1774,6 +1817,7 @@ export class Engine {
     }
     this.camera.lookAt(lookX, 1.6 + this.py * 0.2, lookZ);
     if (mounted) this.camera.rotateZ(-this.steerSmooth * speedK * 0.045);
+
 
     const wantFov = this.boostOn ? 75 : 62 + Math.min(6, Math.abs(this.speed) * 0.15);
     const prevFov = this.camera.fov;

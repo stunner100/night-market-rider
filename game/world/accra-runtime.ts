@@ -71,7 +71,10 @@ float gd = gNoise(vGroundXZ * 0.011 + 17.0);
 vec3 grass = vec3(0.86, 0.88, 0.62);
 vec3 laterite = vec3(1.08, 0.88, 0.72);
 diffuseColor.rgb *= mix(laterite, grass, smoothstep(0.3, 0.7, gm));
-diffuseColor.rgb *= mix(0.94, 1.04, gd);`);
+diffuseColor.rgb *= mix(0.94, 1.04, gd);
+// Fine gravel and dust speckle so the ground has texture up close.
+float gs = gNoise(vGroundXZ * 1.9) * 0.6 + gNoise(vGroundXZ * 6.3) * 0.4;
+diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
     };
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
