@@ -1821,10 +1821,10 @@ export class Engine {
     const t = performance.now() / 1000;
     if (menu) {
       const a = t * 0.25;
-      _menuTarget.set(this.px + Math.sin(a) * 9, 3.4, this.pz + Math.cos(a) * 9);
+      _menuTarget.set(this.px + Math.sin(a) * 5.2, 2.2, this.pz + Math.cos(a) * 5.2);
       this.camPos.lerp(_menuTarget, Math.min(1, dt * 2));
       this.camera.position.copy(this.camPos);
-      this.camera.lookAt(this.px, 1.8, this.pz);
+      this.camera.lookAt(this.px, 1.05, this.pz);
       const prevFov = this.camera.fov;
       this.camera.fov += (58 - this.camera.fov) * dt * 2;
       if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
@@ -1832,8 +1832,9 @@ export class Engine {
     }
     const mounted = useGame.getState().mounted;
     const speedK = Math.min(1, Math.abs(this.speed) / 37);
-    const back = (mounted ? 7.2 : 4.5) + speedK * 1.8;
-    const h = (mounted ? 3.3 : 2.8) + speedK * 0.5;
+    // Framed for a real-size bike (~2 m long): close behind and just above the helmet.
+    const back = (mounted ? 4.3 : 3.8) + speedK * 1.3;
+    const h = (mounted ? 2.25 : 2.3) + speedK * 0.35;
     // Swing the camera with a smoothed heading but keep it locked to the bike's
     // position, so high speed no longer leaves the rider tiny in the distance.
     let dh = this.heading - this.camHeading;
@@ -1854,7 +1855,7 @@ export class Engine {
     );
 
     // Look-ahead camera tracking with steering bias
-    const ahead = mounted ? 6.5 + speedK * 4 : 1.8;
+    const ahead = mounted ? 5 + speedK * 3.5 : 1.8;
     const lookX = this.px + Math.sin(this.heading) * ahead + Math.cos(this.heading) * this.steerSmooth * 1.3;
     const lookZ = this.pz + Math.cos(this.heading) * ahead - Math.sin(this.heading) * this.steerSmooth * 1.3;
     // Keep the chase camera in front of nearby buildings/traffic instead of inside them.
@@ -1880,7 +1881,7 @@ export class Engine {
       // On foot this would push into stall canopies, so only lift while riding.
       if(mounted)this.camera.position.y+=Math.min(2.2,(desiredDistance-this.cameraClearance)*.35);
     }
-    this.camera.lookAt(lookX, 1.6 + this.py * 0.2, lookZ);
+    this.camera.lookAt(lookX, 1.3 + this.py * 0.2, lookZ);
     if (mounted) this.camera.rotateZ(-this.steerSmooth * speedK * 0.045);
 
 
