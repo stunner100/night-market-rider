@@ -22,24 +22,26 @@ export interface Bike {
   /** Body paint and box colour. */
   color: number;
   trim: number;
+  /** Wheel rim / spoke colour. */
+  rim: number;
 }
 
 export const BIKES: Bike[] = [
   {
     id: "ace", name: "Honda Ace 125", tagline: "Every rider's first bike. Cheap to run, never dies.",
-    price: 0, speed: 0.94, accel: 0.92, handling: 1, care: 1, economy: 0.8, color: 0xc92a2a, trim: 0x20252b,
+    price: 0, speed: 0.94, accel: 0.92, handling: 1, care: 1, economy: 0.8, color: 0xc92a2a, trim: 0x20252b, rim: 0xbfc4c8,
   },
   {
     id: "haojue", name: "Haojue Express 150", tagline: "The Night Market standard. Balanced, reliable, quick off the line.",
-    price: 150, speed: 1, accel: 1.06, handling: 1.05, care: 0.95, economy: 1, color: 0x1856d8, trim: 0x20252b,
+    price: 150, speed: 1, accel: 1.06, handling: 1.05, care: 0.95, economy: 1, color: 0x1856d8, trim: 0x20252b, rim: 0x1856d8,
   },
   {
     id: "scooter", name: "Box Scooter 110", tagline: "Slow, but the insulated box keeps waakye hot and jollof in one piece.",
-    price: 250, speed: 0.86, accel: 0.9, handling: 1.12, care: 0.6, economy: 0.7, color: 0xf2e35c, trim: 0x2b2b2b,
+    price: 250, speed: 0.86, accel: 0.9, handling: 1.12, care: 0.6, economy: 0.7, color: 0xf2e35c, trim: 0x2b2b2b, rim: 0x2b2f33,
   },
   {
     id: "apsonic", name: "Apsonic Sport 200", tagline: "Fastest thing on Okponglo road. Thirsty, and the food go shake.",
-    price: 400, speed: 1.14, accel: 1.18, handling: 0.94, care: 1.2, economy: 1.35, color: 0x1d1f22, trim: 0xe8590c,
+    price: 400, speed: 1.14, accel: 1.18, handling: 0.94, care: 1.2, economy: 1.35, color: 0x1d1f22, trim: 0xe8590c, rim: 0xe8590c,
   },
 ];
 

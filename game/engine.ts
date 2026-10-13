@@ -26,7 +26,7 @@ import { CityPower } from "./world/city-power";
 import { RainSchedule, RainStreaks } from "./weather";
 import { Horizon } from "./horizon";
 import { DRIFT, SLIP, bikeFor, inSlipstream, initialFeel, stepDrift, stepSlip, type BikeId } from "./bikes";
-import { paintBike } from "./bike";
+import { setBikeModel } from "./bike";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
@@ -1247,7 +1247,7 @@ export class Engine {
     const look = s.garagePreview ?? s.bike;
     if (look !== this.paintedBike) {
       const b = bikeFor(look);
-      paintBike(this.rig, b.color, b.trim);
+      setBikeModel(this.rig, look, b.rim);
       this.paintedBike = look;
     }
 

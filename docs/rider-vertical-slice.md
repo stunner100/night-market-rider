@@ -153,3 +153,12 @@ Controls: W/S accelerate, brake/reverse; A/D steer; E dismount/mount; F interact
 - Slipstream: tuck in 3–16 m directly behind a car, taxi, trotro or bus going your way (not okadas). It builds over ~0.7 s to +14% top speed and −40% fuel use, and fades when you pull out. HUD chips under the speedometer show DRIFT and a filling SLIPSTREAM bar.
 - Fix: riding position was still clamped to the old 3 km map's coordinates, so parts of the new map were unreachable. The soft map edge now does the job.
 - Validation: TypeScript and 46 tests pass (3 new: drift rules and release kick, slipstream geometry and build/fade, garage stats/buying/selecting). Browser: garage carousel and unaffordable state; in a live ride a held drift slid the tail out (0.45 rad), tightened the turn and paid "🔥 Drift! +13 km/h" on release; riding 8 m behind moving traffic built slipstream to full on the HUD, and it fell to 0 after pulling out.
+
+## Distinct bike models, 13 October 2026
+
+- The first garage pass only recoloured two thin side stripes and the wheel rims (and the Ace's trim matched the original graphite), so every bike still looked like the old one. `buildRider` now splits the bike into a standard body (tank, shoulders, shrouds, cowl, flyscreen), a standard engine (block, fins, radiator, headers, muffler), and one body kit per model. Each part group is batched by material. `setBikeModel` shows the right combination:
+  - Honda Ace 125 (the starter): red teardrop tank, knee pads, side covers, chrome fenders and rack, round chrome headlamp, silver spokes.
+  - Haojue Express 150: the original graphite design with blue rims.
+  - Box Scooter 110: step-through leg shield, nose with headlamp, floorboard, rounded rear body, CVT case, small wheels, 15% larger box; the standard engine is hidden.
+  - Apsonic Sport 200: nose fairing with twin lamps, tinted windscreen, side fairings with orange stripes, belly pan, angular tank and tail, orange rims, compact box.
+- Validation: TypeScript and 46 tests pass. Browser: the menu bike switched between all four models through the garage preview with no console errors.
