@@ -8,7 +8,9 @@ import { buildPeopleGroup, disposePeopleGroup } from "./people";
 import { buildLandmarkGroup, disposeLandmarkGroup } from "./landmarks";
 import { chunkForPoint, chunkKey, distancePointToSegment, nearestPointOnSegment, pointInPolygon } from "./coordinates";
 import type { RoadFrame } from "./roadside-placement";
-import { RoadGraph } from "./road-graph";
+import { RoadGraph, expandGraph, type CompactRoadGraph } from "./road-graph";
+import { buildCoverFills, buildVegetationGroup, disposeVegetationGroup, parseCover, type CoverArea } from "./land-cover";
+import type { DeliverySites } from "./delivery-sites";
 import type { GeographicLocation, RoadGraphData, WorldChunk, WorldManifest, WorldPoi, WorldPoint, WorldRoad } from "./types";
 
 interface LoadedChunk {
@@ -24,6 +26,12 @@ export class AccraWorldRuntime {
   roadGraph: RoadGraph | null = null;
   available = false;
   ready = false;
+  /** World-space extent of the baked map; riders are kept inside it. */
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+  sites: DeliverySites = { vendors: [], drops: [] };
+  private cover: CoverArea[] = [];
+  private version = "";
+  private file(name: string) { return `${this.baseUrl}/${name}?v=${this.version}`; }
 
   private loaded = new Map<string, LoadedChunk>();
   private loading = new Map<string, Promise<void>>();
@@ -59,10 +67,11 @@ float gNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
         .replace('#include <map_fragment>', `#include <map_fragment>
 float gm = gNoise(vGroundXZ * 0.018) * 0.65 + gNoise(vGroundXZ * 0.07) * 0.35;
 float gd = gNoise(vGroundXZ * 0.011 + 17.0);
-vec3 lush = vec3(0.62, 0.78, 0.45);
-vec3 laterite = vec3(1.12, 0.86, 0.68);
-diffuseColor.rgb *= mix(laterite, lush, smoothstep(0.36, 0.66, gm));
-diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
+// Dry-season savannah: straw grass and red laterite, gentle variation (no dark, swampy blotches).
+vec3 grass = vec3(0.86, 0.88, 0.62);
+vec3 laterite = vec3(1.08, 0.88, 0.72);
+diffuseColor.rgb *= mix(laterite, grass, smoothstep(0.3, 0.7, gm));
+diffuseColor.rgb *= mix(0.94, 1.04, gd);`);
     };
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), groundMat);
     this.ground.rotation.x = -Math.PI / 2;
@@ -78,18 +87,39 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
 
   async initialize(): Promise<boolean> {
     try {
-      const manifestRes = await fetch(`${this.baseUrl}/manifest.json`, { cache: "force-cache" });
+      // The manifest is always revalidated; every other file is keyed to its bake so a new map is never mixed with a cached old one.
+      const manifestRes = await fetch(`${this.baseUrl}/manifest.json`, { cache: "no-cache" });
       if (!manifestRes.ok) throw new Error(`manifest ${manifestRes.status}`);
-      const [manifest, graphRes, locationsRes] = await Promise.all([
-        manifestRes.json() as Promise<WorldManifest>,
-        fetch(`${this.baseUrl}/graph.json`, { cache: "force-cache" }),
-        fetch(`${this.baseUrl}/locations.json`, { cache: "force-cache" }),
+      const manifest = await manifestRes.json() as WorldManifest;
+      this.version = encodeURIComponent(manifest.generatedAt);
+      const [graphRes, locationsRes] = await Promise.all([
+        fetch(this.file("graph.json"), { cache: "force-cache" }),
+        fetch(this.file("locations.json"), { cache: "force-cache" }),
       ]);
       this.manifest = manifest;
-      if (graphRes.ok) this.roadGraph = new RoadGraph(await graphRes.json() as RoadGraphData);
+      const size = manifest.chunkSize;
+      this.bounds = manifest.bounds ?? {
+        minX: Math.min(...manifest.chunks.map(c => c.cx)) * size, maxX: (Math.max(...manifest.chunks.map(c => c.cx)) + 1) * size,
+        minZ: Math.min(...manifest.chunks.map(c => c.cz)) * size, maxZ: (Math.max(...manifest.chunks.map(c => c.cz)) + 1) * size,
+      };
+      // Ground only needs to reach a little past the map edge.
+      const b = this.bounds;
+      this.ground.scale.set((b.maxX - b.minX + 1200) / 5200, (b.maxZ - b.minZ + 1200) / 5200, 1);
+      this.ground.position.set((b.minX + b.maxX) / 2, -0.03, (b.minZ + b.maxZ) / 2);
+      if (graphRes.ok) this.roadGraph = new RoadGraph(expandGraph(await graphRes.json() as RoadGraphData | CompactRoadGraph));
       if (locationsRes.ok) this.locations = await locationsRes.json() as GeographicLocation[];
+      // Optional v2 data: land cover and delivery sites.
+      const [coverRes, sitesRes] = await Promise.all([
+        fetch(this.file("landcover.json"), { cache: "force-cache" }).catch(() => null),
+        fetch(this.file("sites.json"), { cache: "force-cache" }).catch(() => null),
+      ]);
+      if (coverRes?.ok) {
+        this.cover = parseCover(await coverRes.json());
+        this.group.add(buildCoverFills(this.cover));
+      }
+      if (sitesRes?.ok) this.sites = await sitesRes.json() as DeliverySites;
       try {
-        const poisRes = await fetch(`${this.baseUrl}/pois.json`, { cache: "force-cache" });
+        const poisRes = await fetch(this.file("pois.json"), { cache: "force-cache" });
         if (poisRes.ok) this.absorbPois(await poisRes.json() as WorldPoi[]);
       } catch { /* fuel can still be discovered from loaded chunks */ }
       this.available = true;
@@ -214,7 +244,7 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
     if (existing) return existing;
     const job = (async () => {
       try {
-        const response = await fetch(`${this.baseUrl}/chunks/${key}.json`, { cache: "force-cache" });
+        const response = await fetch(this.file(`chunks/${key}.json`), { cache: "force-cache" });
         if (!response.ok || this.destroyed) return;
         const data = await response.json() as WorldChunk;
         if (this.loaded.has(key) || this.destroyed || !this.wanted.has(key)) return;
@@ -224,6 +254,7 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
         group.add(buildBuildingGroup(data.buildings, this.mobile));
         group.add(buildStreetDressingGroup(data, this.mobile));
         group.add(buildPeopleGroup(data, this.mobile));
+        group.add(buildVegetationGroup(data, this.cover, this.manifest?.chunkSize ?? 256, this.mobile));
         this.group.add(group);
         this.loaded.set(key, { data, group });
         this.roadIndex.set(key, data.roads);
@@ -378,6 +409,8 @@ diffuseColor.rgb *= mix(0.86, 1.08, gd);`);
     const buildings = chunk.group.getObjectByName("osm-buildings");
     const dressing = chunk.group.getObjectByName("osm-street-dressing");
     const people = chunk.group.getObjectByName("osm-people");
+    const vegetation = chunk.group.getObjectByName("osm-vegetation");
+    if (vegetation instanceof THREE.Group) disposeVegetationGroup(vegetation);
     if (roads instanceof THREE.Group) disposeRoadGroup(roads);
     if (buildings instanceof THREE.Group) disposeBuildingGroup(buildings);
     if (dressing instanceof THREE.Group) disposeStreetDressingGroup(dressing);

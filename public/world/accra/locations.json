@@ -14,8 +14,8 @@
     "lat": 5.64077,
     "lon": -0.18375,
     "kind": "junction",
-    "x": 280.27370159892996,
-    "z": 192.582719072389
+    "x": 280.3,
+    "z": 192.6
   },
   {
     "id": "legon-traffic-light",
@@ -23,8 +23,8 @@
     "lat": 5.64055,
     "lon": -0.17925,
     "kind": "junction",
-    "x": 778.7842380397141,
-    "z": 217.0730070468719
+    "x": 778.8,
+    "z": 217.1
   },
   {
     "id": "legon-post-office",
@@ -32,8 +32,8 @@
     "lat": 5.6509,
     "lon": -0.18763,
     "kind": "poi",
-    "x": -149.55316093223402,
-    "z": -935.0837226634937
+    "x": -149.6,
+    "z": -935.1
   },
   {
     "id": "upsa",
@@ -41,7 +41,43 @@
     "lat": 5.66155,
     "lon": -0.16638,
     "kind": "university",
-    "x": 2204.5243722603545,
-    "z": -2120.636299611863
+    "x": 2204.5,
+    "z": -2120.6
+  },
+  {
+    "id": "madina",
+    "name": "Madina",
+    "lat": 5.68,
+    "lon": -0.166,
+    "kind": "district",
+    "x": 2246.6,
+    "z": -4174.5
+  },
+  {
+    "id": "east-legon",
+    "name": "East Legon",
+    "lat": 5.637,
+    "lon": -0.156,
+    "kind": "district",
+    "x": 3354.4,
+    "z": 612.3
+  },
+  {
+    "id": "shiashie",
+    "name": "Shiashie",
+    "lat": 5.623,
+    "lon": -0.172,
+    "kind": "district",
+    "x": 1581.9,
+    "z": 2170.7
+  },
+  {
+    "id": "tetteh-quarshie",
+    "name": "Tetteh Quarshie Interchange",
+    "lat": 5.617,
+    "lon": -0.1745,
+    "kind": "junction",
+    "x": 1305,
+    "z": 2838.6
   }
 ]

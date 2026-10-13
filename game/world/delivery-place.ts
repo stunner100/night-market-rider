@@ -95,6 +95,30 @@ export function buildDeliveryPlace(
     sign("NIGHT MARKET · RIDER PICKUP", 4.6, 0, 3.85, -2, "#101f17", "#f2e35c");
     box(0.14, 4, 0.14, 0x594b38, -2.5, 2, -2.1);
     box(0.14, 4, 0.14, 0x594b38, 2.5, 2, -2.1);
+    // Painted rider bay on the ground between the counter and the road.
+    for (const [w, d, x, z] of [[2.6, 0.12, 0, 1.6], [2.6, 0.12, 0, 4.4], [0.12, 2.9, -1.3, 3], [0.12, 2.9, 1.3, 3]] as const)
+      box(w, 0.02, d, 0xf2e35c, x, 0.075, z);
+    const bay = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.3, 0.55),
+      new THREE.MeshBasicMaterial({ map: textTexture("RIDERS PARK HERE", { bg: "#00000000", fg: "#f2e35c", w: 768, h: 160, font: 70 }), transparent: true }),
+    );
+    bay.rotation.x = -Math.PI / 2;
+    bay.position.set(0, 0.08, 3.6);
+    group.add(bay);
+    // Charcoal stove with a big aluminium pot (the engine puffs steam from it).
+    box(0.9, 0.5, 0.9, 0x3a3532, 1.7, 0.25, -0.9);
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.36, 0.55, 16), new THREE.MeshStandardMaterial({ color: 0xc9cdd1, metalness: 0.85, roughness: 0.3 }));
+    pot.position.set(1.7, 0.78, -0.9);
+    pot.name = "steam-pot";
+    group.add(pot);
+    // Chalk menu board with today's prices.
+    box(0.08, 1.2, 0.08, 0x594b38, -2.9, 0.6, -0.4);
+    box(1.4, 1.05, 0.06, 0x1d2b25, -2.9, 1.55, -0.4);
+    [["WAAKYE ........ ₵25", 1.85], ["JOLLOF + CHICKEN ₵45", 1.55], ["KELEWELE ...... ₵10", 1.25]].forEach(([line, y]) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.22), new THREE.MeshBasicMaterial({ map: textTexture(line as string, { bg: "#1d2b25", fg: "#f3f0e0", w: 640, h: 112, font: 44 }) }));
+      m.position.set(-2.9, y as number, -0.36);
+      group.add(m);
+    });
   }
   // Plastic chairs, drinks crates, food table and a shade umbrella.
   for (let i = 0; i < 3; i++) {
@@ -138,4 +162,79 @@ export function disposeDeliveryPlace(group: THREE.Group) {
     }
   });
   group.removeFromParent();
+}
+
+const GATE_WALL = [0xe7d3b0, 0xd8c6e0, 0xc9e0d0, 0xf0c9a8, 0xe9e2cf];
+
+/**
+ * Ghanaian compound frontage for a drop-off: boundary wall, a two-leaf metal gate
+ * (leaves named gate-left / gate-right, hinged at the posts), house number, a
+ * gutter with a slab bridge, and the odd "Beware of dog". Local +z faces the road.
+ * Hostels get a porter's lodge with a barrier instead.
+ */
+export function buildCompoundGate(opts: { color: number; number: number; seed: number; hostel?: string | null }): THREE.Group {
+  const group = new THREE.Group();
+  group.name = opts.hostel ? "hostel-lodge" : "compound-gate";
+  const solid = (color: number, roughness = 0.85, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const add = (parent: THREE.Object3D, w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+    return mesh;
+  };
+  const wall = solid(GATE_WALL[opts.seed % GATE_WALL.length]);
+  const coping = solid(0xb9ad98);
+  const drain = solid(0x2d2a26, 1);
+  const slab = solid(0xa9a39a);
+  const plate = (text: string, w: number, x: number, y: number, z: number, bg: string, fg: string) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 3.2), new THREE.MeshBasicMaterial({ map: textTexture(text, { bg, fg, w: 512, h: 160, font: 64 }) }));
+    m.position.set(x, y, z);
+    group.add(m);
+  };
+  // Open storm drain along the road with a concrete slab bridge to the entrance.
+  add(group, 14, 0.04, 0.55, drain, 0, 0.02, 1.25);
+  add(group, 3.4, 0.12, 0.8, slab, 0, 0.07, 1.25);
+  if (opts.hostel) {
+    add(group, 2.4, 2.5, 2.2, solid(0xe9e2cf), -3.2, 1.25, -0.8);
+    add(group, 2.7, 0.15, 2.5, coping, -3.2, 2.58, -0.8);
+    add(group, 1.2, 0.8, 0.05, solid(0x24362f, 0.3), -3.2, 1.5, 0.32);
+    add(group, 0.2, 1.1, 0.2, solid(0xd8d0bc), 2.3, 0.55, 0.2);
+    const arm = add(group, 4.2, 0.1, 0.1, solid(0xe03131), 0.2, 1.05, 0.2);
+    arm.name = "barrier";
+    plate(`${opts.hostel.toUpperCase()} · PORTER'S LODGE`, 3.6, -3.2, 2.95, 0.36, "#24533d", "#f6efd6");
+    for (const side of [-1, 1]) add(group, 4.5, 2.2, 0.25, wall, side * 7, 1.1, 0);
+    return group;
+  }
+  // Boundary wall either side of the gate, with posts and lamps.
+  for (const side of [-1, 1]) {
+    add(group, 5.4, 2.2, 0.25, wall, side * 4.3, 1.1, 0);
+    add(group, 5.5, 0.12, 0.4, coping, side * 4.3, 2.26, 0);
+    add(group, 0.5, 2.7, 0.5, wall, side * 1.6, 1.35, 0);
+    const lamp = add(group, 0.22, 0.26, 0.22, new THREE.MeshStandardMaterial({ color: 0xfff1c9, emissive: 0xffc27a, emissiveIntensity: 0.8 }), side * 1.6, 2.83, 0);
+    lamp.material.name = "lantern";
+  }
+  plate(`H/No. ${opts.number}`, 0.7, 1.6, 1.9, 0.26, "#1c4f8a", "#ffffff");
+  if (opts.seed % 3 === 0) plate("BEWARE OF DOG", 1.2, -4.3, 1.5, 0.13, "#f8f9fa", "#c92a2a");
+  // Two gate leaves hinged at the posts: vertical bars over a solid lower half.
+  const gateMat = solid(opts.color, 0.45, 0.6);
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Group();
+    hinge.position.set(side * 1.35, 0, 0);
+    hinge.name = side < 0 ? "gate-left" : "gate-right";
+    const dir = -side; // leaves extend toward the centre
+    add(hinge, 1.32, 1.0, 0.06, gateMat, dir * 0.66, 0.6, 0);
+    for (let i = 0; i < 6; i++) add(hinge, 0.05, 1.0, 0.05, gateMat, dir * (0.1 + i * 0.23), 1.6, 0);
+    add(hinge, 1.32, 0.07, 0.07, gateMat, dir * 0.66, 2.1, 0);
+    group.add(hinge);
+  }
+  // Bougainvillea spilling over the wall.
+  const flowers = solid(0xd6336c, 0.9);
+  for (let i = 0; i < 4; i++) {
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45 + (i % 2) * 0.15, 0), flowers);
+    b.position.set(-5.8 + i * 0.5, 2.35 + (i % 2) * 0.2, -0.1);
+    group.add(b);
+  }
+  return group;
 }

@@ -91,6 +91,7 @@ export default function RiderPhone() {
                     : "No order now. Roam small or go online."}
                 </p>
                 <p>{s.order?.food}</p>
+                {s.order?.address && <p className="muted">📍 {s.order.address}</p>}
                 {s.delivery.message && !awaitingReply && <p className="phone-message">{s.delivery.message}</p>}
                 <button
                   className="btn btn-primary"
@@ -145,7 +146,7 @@ export default function RiderPhone() {
                 <p className="phone-message">
                   {s.order
                     ? s.delivery.message ||
-                      `${s.order.customer}: ${customerDetails(s.order.id).note}`
+                      `${s.order.customer}: ${customerDetails(s.order.id, s.order.meeting).note}`
                     : "Customer chats go show here."}
                 </p>
                 <button
@@ -168,7 +169,7 @@ export default function RiderPhone() {
                   {awaitingReply ? "TEXT: “I DON REACH”" : "TEXT: “I DEY COME”"}
                 </button>
                 {s.delivery.messageSent && <p role="status">Sent ✓</p>}
-                {s.order && <p className="muted">Customer note: {customerDetails(s.order.id).note}</p>}
+                {s.order && <p className="muted">Customer note: {customerDetails(s.order.id, s.order.meeting).note}</p>}
               </>
             )}
             {tab === "Messages" && (

@@ -2,7 +2,7 @@ import { customerDetails, customerApproachStep } from "./delivery/customer";
 import * as THREE from "three";
 import { buildWorld, World } from "./world";
 import { buildRider, RiderRig } from "./bike";
-import { makeOrder, saveBoard, separateOrderFromRider, useGame, persistProgress, restoreProgress, type GameState } from "./store";
+import { makeOrder, priceOrder, saveBoard, separateOrderFromRider, useGame, persistProgress, restoreProgress, type GameState } from "./store";
 import { GameAudio } from "./audio";
 import { textTexture, disposeTextureCache } from "./textures";
 import { Sky } from "./sky";
@@ -17,7 +17,7 @@ import { buildMinimapFrame, type MinimapFrame } from "./world/minimap-data";
 import { cueFromRoute } from "./world/navigation";
 import { OsmGameplay } from "./world/osm-gameplay";
 import { movementTarget } from "./rider-controls";
-import { buildDeliveryPlace, disposeDeliveryPlace } from "./world/delivery-place";
+import { buildCompoundGate, buildDeliveryPlace, disposeDeliveryPlace } from "./world/delivery-place";
 import { reduceDelivery, initialDelivery, deliveryPhase, type DeliveryEvent, type DeliveryContext } from "./delivery/machine";
 import { chooseRoadside } from "./world/roadside-placement";
 import { CRASH, DELIVERY, RIDER_HINTS, STREET, pick } from "./voice";
@@ -27,6 +27,7 @@ import { RainSchedule, RainStreaks } from "./weather";
 import { CHECKPOINT, initialCheckpoint, reduceCheckpoint, type CheckpointEvent } from "./checkpoint";
 import { STATIONS, radioCaption } from "./radio";
 import { perksFor } from "./archetypes";
+import { addressFor, gateFor, pickSites } from "./world/delivery-sites";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; }
 
@@ -53,6 +54,7 @@ const CARRY_STAGES = ['returnBike', 'rideCustomer', 'contact', 'calling', 'findC
 const _skyResult = new THREE.Color();
 const _white = new THREE.Color(0xffffff);
 const _rainGrey = new THREE.Color(0x6d7680);
+const _steamPos = new THREE.Vector3();
 /** The Night Market shift starts at golden hour; night falls about two minutes in. */
 const SHIFT_START_HOUR = 17.5;
 // Pre-allocated Vector3 for exhaust position
@@ -125,6 +127,14 @@ export class Engine {
   private shout: THREE.Sprite | null = null;
   private shoutTarget: THREE.Object3D | null = null;
   private shoutLeft = -99;
+  /** Drop-off gate: 0 closed → 1 open; the customer walks out from inside. */
+  private gateOpen = 0;
+  private customerInside = false;
+  private waitingRiders: THREE.Group[] = [];
+  private prepLabel: THREE.Sprite | null = null;
+  private prepText = "";
+  private steamAt = 0;
+  private edgeToastAt = -99;
   private power = new CityPower();
   private rain = new RainSchedule();
   private rainStreaks: RainStreaks | null = null;
@@ -189,8 +199,8 @@ export class Engine {
     return { mounted: s.mounted, speed: this.speed, vendorDistance: distance(this.vendorNPC), customerDistance: distance(this.customerNPC),
       destinationDistance: s.order ? Math.hypot(this.px - s.order.dropX, this.pz - s.order.dropZ) : Infinity,
       bikeDistance: Math.hypot(this.px - this.parked.x, this.pz - this.parked.z), delay: prepSeconds(s.orderIndex) * perksFor(s.archetype).prep, customer: s.order?.customer ?? 'Customer',
-      customerNote: customerDetails(s.order?.id ?? 1).note, customerReply: customerDetails(s.order?.id ?? 1).reply,
-      missesFirstCall: customerDetails(s.order?.id ?? 1).missesFirstCall,
+      customerNote: customerDetails(s.order?.id ?? 1, s.order?.meeting).note, customerReply: customerDetails(s.order?.id ?? 1, s.order?.meeting).reply,
+      missesFirstCall: customerDetails(s.order?.id ?? 1, s.order?.meeting).missesFirstCall,
       ...this.orderContext() };
   }
 
@@ -333,6 +343,17 @@ export class Engine {
   /** Rain, dumsor, the checkpoint and the radio — the city's own systems. */
   private updateCity(dt: number, t: number) {
     const s = useGame.getState();
+    // Soft edge of the baked map: ease the rider back instead of letting them ride into nothing.
+    const b = this.osmActive ? this.osmWorld.bounds : null;
+    if (b) {
+      const m = 35;
+      const cx = Math.min(b.maxX - m, Math.max(b.minX + m, this.px)), cz = Math.min(b.maxZ - m, Math.max(b.minZ + m, this.pz));
+      if (cx !== this.px || cz !== this.pz) {
+        this.px = cx; this.pz = cz;
+        this.speed *= 0.4;
+        if (t - this.edgeToastAt > 5) { this.edgeToastAt = t; s.pushToast("🚧 Night Market no dey deliver pass here — turn back!"); }
+      }
+    }
     // Rain
     if (!this.rainStreaks) this.rainStreaks = new RainStreaks(this.scene, this.isMobile);
     const rainEvent = this.rain.update(this.shiftSeconds, dt);
@@ -742,9 +763,24 @@ export class Engine {
     this.freeDestination=null;
     const s = useGame.getState();
     s.set({navigationTarget:""});
-    const order = this.osmActive
+    let order = this.osmActive
       ? separateOrderFromRider(makeOrder(s.orderIndex), this.px, this.pz, s.orderIndex)
       : makeOrder(s.orderIndex);
+    // Real Accra places: a food spot near the rider and a home or hostel a short ride away.
+    const sites = this.osmActive ? pickSites(this.osmWorld.sites, { x: this.px, z: this.pz }, s.orderIndex * 7919 + Math.floor(Math.random() * 1000)) : null;
+    if (sites) {
+      const { vendor, drop } = sites;
+      const gate = gateFor(order.id, drop);
+      order = {
+        ...order,
+        ...priceOrder(s.orderIndex, vendor, drop),
+        pickupX: vendor.x, pickupZ: vendor.z, dropX: drop.x, dropZ: drop.z,
+        dropoff: drop.road ?? drop.near ?? order.dropoff,
+        vendorSite: vendor, dropSite: drop,
+        address: addressFor(drop, order.id),
+        meeting: drop.kind === "hostel" && drop.name ? `the ${drop.name} porter's lodge` : `the ${gate.name} gate, H/No. ${gate.number}`,
+      };
+    }
     if (this.osmActive) {
       const pickup = this.osmWorld.nearestRoadPoint(order.pickupX, order.pickupZ, 180);
       const drop = this.osmWorld.nearestRoadPoint(order.dropX, order.dropZ, 180);
@@ -814,6 +850,22 @@ export class Engine {
     this.vendorPlace = buildDeliveryPlace(useGame.getState().order?.vendor ?? 'NIGHT MARKET');
     this.vendorPlace.position.set(spot.x,0,spot.z);this.vendorPlace.rotation.y=spot.yaw;
     this.scene.add(this.vendorPlace);
+    // Other Night Market riders already waiting at the counter.
+    const queue = 1 + (useGame.getState().orderIndex % 2);
+    for (let i = 0; i < queue; i++) {
+      const other = buildHumanoid({ skin: this._pick(SKIN_TONES), shirt: 0xf2e35c, pants: 0x2b2b2b, hair: "short", scale: 0.97 + Math.random() * 0.06, detail: "simple" });
+      const helmet = buildHelmet(this._pick([0xf2e35c, 0x111214, 0xe9ecef]));
+      other.head.add(helmet);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.32), new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.6 }));
+      box.position.set(0, -0.15, 0.18);
+      other.armR.hand.add(box);
+      const lx = -2 + i * 0.9, lz = 0.9 + i * 0.3;
+      other.group.position.set(spot.x + Math.cos(spot.yaw) * lx + Math.sin(spot.yaw) * lz, 0, spot.z - Math.sin(spot.yaw) * lx + Math.cos(spot.yaw) * lz);
+      other.group.rotation.y = spot.yaw + Math.PI + (i ? 0.4 : -0.2);
+      other.group.userData.rig = other;
+      this.scene.add(other.group);
+      this.waitingRiders.push(other.group);
+    }
     this.vendorNPC = rig.group;
     this.vendorRig = rig;
   }
@@ -821,7 +873,7 @@ export class Engine {
     if (this.vendorNPC) { this._disposeGroup(this.vendorNPC); this.scene.remove(this.vendorNPC); this.vendorNPC = null; this.vendorRig = null; }
     const rig = buildHumanoid({
       skin: this._pick(SKIN_TONES),
-      shirt: customerDetails(useGame.getState().order?.id ?? 1).shirt,
+      shirt: customerDetails(useGame.getState().order?.id ?? 1, useGame.getState().order?.meeting).shirt,
       pants: this._pick([0x1971c2, 0x343a40, 0x2b2b2b]),
       hair: this._pick(["afro", "short", "wrap", "bald", "cap"] as HairStyle[]),
       capColor: this._pick([0xd6336c, 0x1971c2, 0x2f9e44]),
@@ -831,13 +883,31 @@ export class Engine {
       longSleeves: Math.random() < 0.3,
       shorts: Math.random() < 0.3,
     });
-    const spot = this.placeActor(order.dropX, order.dropZ);
-    rig.group.position.set(spot.x, 0, spot.z);
-    rig.group.rotation.y = spot.yaw;
-    this.scene.add(rig.group);
-    this.customerPlace = buildDeliveryPlace('LEGON COMMUNITY',true);
-    this.customerPlace.position.set(spot.x,0,spot.z);this.customerPlace.rotation.y=spot.yaw;
-    this.scene.add(this.customerPlace);
+    const site = useGame.getState().order?.dropSite;
+    this.gateOpen = 0;
+    this.customerInside = false;
+    if (site && this.osmActive) {
+      // A real house: the gate stands at the property line and the customer waits inside until called.
+      const o = useGame.getState().order!;
+      const gate = gateFor(o.id, site);
+      this.customerPlace = buildCompoundGate({ color: gate.color, number: gate.number, seed: gate.number, hostel: site.kind === 'hostel' ? site.name : null });
+      this.customerPlace.position.set(site.gx, 0, site.gz);
+      this.customerPlace.rotation.y = site.yaw;
+      this.scene.add(this.customerPlace);
+      const back = site.kind === 'hostel' ? -1.6 : -2.4;
+      rig.group.position.set(site.gx + Math.sin(site.yaw) * back, 0, site.gz + Math.cos(site.yaw) * back);
+      rig.group.rotation.y = site.yaw;
+      this.customerInside = site.kind !== 'hostel';
+      this.scene.add(rig.group);
+    } else {
+      const spot = this.placeActor(order.dropX, order.dropZ);
+      rig.group.position.set(spot.x, 0, spot.z);
+      rig.group.rotation.y = spot.yaw;
+      this.scene.add(rig.group);
+      this.customerPlace = buildDeliveryPlace('LEGON COMMUNITY',true);
+      this.customerPlace.position.set(spot.x,0,spot.z);this.customerPlace.rotation.y=spot.yaw;
+      this.scene.add(this.customerPlace);
+    }
     this.customerNPC = rig.group;
     this.customerRig = rig;
     // The customer only holds the bag once the rider hands it over.
@@ -856,6 +926,9 @@ export class Engine {
     this.vendorNPC = this.customerNPC = null;
     this.vendorRig = this.customerRig = null;
     this.vendorBag = this.customerBag = null;
+    for (const g of this.waitingRiders) { this._disposeGroup(g); this.scene.remove(g); }
+    this.waitingRiders = [];
+    if (this.prepLabel) this.prepLabel.visible = false;
   }
 
   private _disposeGroup(g: THREE.Group) {
@@ -877,6 +950,39 @@ export class Engine {
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
     obj.rotation.y += dy * Math.min(1, dt * 3.2);
+  }
+
+  /** Vendor stall life: steam off the pot, a prep countdown over the counter, waiting riders fidgeting. */
+  private animatePickupScene(t: number, dt: number) {
+    const place = this.vendorPlace, stage = useGame.getState().delivery.stage;
+    if (place && place.visible) {
+      const pot = place.getObjectByName('steam-pot');
+      this.steamAt -= dt;
+      if (pot && this.steamAt <= 0 && place.position.distanceTo(this.rig.group.position) < 60) {
+        this.steamAt = 0.35;
+        pot.getWorldPosition(_steamPos);
+        this.spawnPuff(_steamPos.x, _steamPos.y + 0.35, _steamPos.z, 0xf1f3f5, 1, 0.25);
+      }
+    }
+    for (const g of this.waitingRiders) {
+      const rig = g.userData.rig as HumanoidRig | undefined;
+      if (rig) animateIdle(rig, t + g.position.x, 3.1);
+    }
+    const label = ['preparing', 'fixingBag'].includes(stage) ? `⏱ ${Math.ceil(useGame.getState().delivery.remaining)} s` : stage === 'collect' ? 'READY ✓ · TAKE AM' : '';
+    if (!label || !this.vendorNPC) { if (this.prepLabel) this.prepLabel.visible = false; return; }
+    if (!this.prepLabel) {
+      this.prepLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false }));
+      this.prepLabel.scale.set(2.2, 0.55, 1);
+      this.prepLabel.renderOrder = 9;
+      this.scene.add(this.prepLabel);
+    }
+    if (label !== this.prepText) {
+      this.prepText = label;
+      (this.prepLabel.material as THREE.SpriteMaterial).map = textTexture(label, { bg: stage === 'collect' ? '#2f9e44' : '#101f17', fg: '#ffffff', w: 512, h: 128, font: 58 });
+      (this.prepLabel.material as THREE.SpriteMaterial).needsUpdate = true;
+    }
+    this.prepLabel.visible = true;
+    this.prepLabel.position.set(this.vendorNPC.position.x, 2.75, this.vendorNPC.position.z);
   }
 
   /** Per-frame NPC animation: face the player, wave, walk up, or hand off. */
@@ -904,7 +1010,8 @@ export class Engine {
       if(lamp)lamp.intensity=this.nightF*28;
     }
     if (order && (phase === "offer" || phase === "toPickup")) this.settleRoadside(this.vendorNPC, order.pickupX, order.pickupZ);
-    if (order && phase === "toDropoff") this.settleRoadside(this.customerNPC, order.dropX, order.dropZ);
+    if (order && phase === "toDropoff" && !order.dropSite) this.settleRoadside(this.customerNPC, order.dropX, order.dropZ);
+    this.animatePickupScene(t, dt);
     if (this.vendorRig && this.vendorNPC) {
       const v = this.vendorNPC;
       this._faceRider(v, dt);
@@ -931,9 +1038,30 @@ export class Engine {
       const c = this.customerNPC;
       const state = useGame.getState();
       let approaching = false;
+      // Once the call connects, the gate swings open and the customer comes out to the road side.
+      const gateKit = this.customerPlace?.name === 'compound-gate' ? this.customerPlace : null;
+      if (gateKit && ['findCustomer', 'payment', 'handoff', 'completed'].includes(state.delivery.stage)) {
+        this.gateOpen = Math.min(1, this.gateOpen + dt * 1.2);
+        const l = gateKit.getObjectByName('gate-left'), r = gateKit.getObjectByName('gate-right');
+        if (l) l.rotation.y = -this.gateOpen * 1.45;
+        if (r) r.rotation.y = this.gateOpen * 1.45;
+        if (this.customerInside && this.gateOpen > 0.5) {
+          const yaw = gateKit.rotation.y;
+          const tx = gateKit.position.x + Math.sin(yaw) * 0.9, tz = gateKit.position.z + Math.cos(yaw) * 0.9;
+          const dx = tx - c.position.x, dz = tz - c.position.z, d = Math.hypot(dx, dz);
+          if (d < 0.05) this.customerInside = false;
+          else {
+            const step = Math.min(d, dt * 1.3);
+            c.position.x += dx / d * step; c.position.z += dz / d * step;
+            c.rotation.y = Math.atan2(dx, dz);
+            animateWalk(this.customerRig, t, 1.1);
+            approaching = true;
+          }
+        }
+      }
       if (order && this.customerPlace && state.delivery.stage === 'findCustomer' &&
-          customerDetails(order.id).approaches && !state.mounted && Math.abs(this.speed) < 1) {
-        const next = customerApproachStep(c.position, { x: this.px, z: this.pz }, this.customerPlace.position, dt,
+          customerDetails(order.id, order.meeting).approaches && !state.mounted && Math.abs(this.speed) < 1) {
+        const next = this.customerInside ? null : customerApproachStep(c.position, { x: this.px, z: this.pz }, this.customerPlace.position, dt,
           (x, z) => this.onRoad(x, z) || (this.osmActive && !!this.osmWorld.collidesBuilding(x, z, .45)));
         if (next) { c.position.x=next.x; c.position.z=next.z; approaching=true; }
       }
@@ -941,7 +1069,7 @@ export class Engine {
         this.world.dropMarker.position.set(c.position.x,.1,c.position.z);
         if(this.targetLabel)this.targetLabel.position.set(c.position.x,4.6,c.position.z);
       }
-      this._faceRider(c, dt);
+      if (!this.customerInside) this._faceRider(c, dt);
       const d = Math.hypot(this.px - c.position.x, this.pz - c.position.z);
       if (approaching) {
         animateWalk(this.customerRig, t, 1.1);
@@ -951,7 +1079,8 @@ export class Engine {
       } else if (phase === "delivered") {
         animateIdle(this.customerRig, t, 4.1);
       }
-      if (this.customerBag) this.customerBag.visible = ['handoff', 'completed'].includes(state.delivery.stage); else if (phase === "toDropoff") {
+      if (this.customerBag) this.customerBag.visible = ['handoff', 'completed'].includes(state.delivery.stage);
+      if (phase === "toDropoff" && !this.customerInside) {
         if ((t % 8) < 1.6) animateWave(this.customerRig, t);
         else animateIdle(this.customerRig, t, 4.1);
       }

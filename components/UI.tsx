@@ -506,6 +506,9 @@ export default function UI({
                   : `${s.order.customer} · ${s.order.dropoff}`}
               </p>
             )}
+            {s.order?.address && ["returnBike", "rideCustomer", "contact", "calling", "findCustomer"].includes(stage) && (
+              <p className="task-address">📍 {s.order.address}</p>
+            )}
             {(s.navigationTarget ||
               ["ridePickup", "rideCustomer"].includes(stage)) && (
               <div className="route-instruction">
@@ -539,7 +542,7 @@ export default function UI({
             )}
             {stage === "findCustomer" && (
               <p>
-                {customerDetails(s.order?.id ?? 1).meeting} ·{" "}
+                {customerDetails(s.order?.id ?? 1, s.order?.meeting).meeting} ·{" "}
                 {Math.round(s.interactionDistance)} m
               </p>
             )}
@@ -651,11 +654,12 @@ export default function UI({
               <p>{s.order.food}</p>
               <div className="offer-route">
                 <span>01 · TAKE FROM</span>
-                <b>{s.order.vendor} · Legon corridor</b>
+                <b>{s.order.vendor}{s.order.vendorSite?.road ? ` · ${s.order.vendorSite.road}` : " · Legon corridor"}</b>
                 <span>02 · CARRY GO</span>
                 <b>
                   {s.order.customer} · {s.order.dropoff}
                 </b>
+                {s.order.address && <span className="offer-address">{s.order.address}</span>}
               </div>
               <div className="offer-pay">
                 <strong>GH₵{s.order.reward.toFixed(2)}</strong>

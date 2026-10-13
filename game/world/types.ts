@@ -45,6 +45,8 @@ export interface WorldManifest {
   license: string;
   origin: { lat: number; lon: number; name?: string };
   bbox: { south: number; west: number; north: number; east: number };
+  /** World-space extent (v2 bakes). */
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
   chunkSize: number;
   counts: {
     roads: number;

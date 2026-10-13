@@ -12,6 +12,27 @@ export interface Departure {
   bz: number;
 }
 
+/** Compact baked graph (v2): nodes [x,z]; edges [from, to, length, highwayIndex, oneWay]. */
+export interface CompactRoadGraph {
+  v: 2;
+  highways: string[];
+  nodes: [number, number][];
+  edges: [number, number, number, number, number][];
+}
+
+/** Accepts either the original verbose graph or the compact v2 bake. */
+export function expandGraph(data: RoadGraphData | CompactRoadGraph): RoadGraphData {
+  if (!("v" in data) || data.v !== 2) return data as RoadGraphData;
+  const nodes = data.nodes.map(([x, z], i) => ({ id: `n${i}`, x, z }));
+  const edges: RoadGraphData["edges"] = [];
+  data.edges.forEach(([from, to, length, hw, oneWay], i) => {
+    const highway = data.highways[hw] ?? "road";
+    edges.push({ id: `e${i}:f`, from: `n${from}`, to: `n${to}`, length, roadId: "", highway });
+    if (!oneWay) edges.push({ id: `e${i}:r`, from: `n${to}`, to: `n${from}`, length, roadId: "", highway });
+  });
+  return { nodes, edges };
+}
+
 export class RoadGraph {
   private nodes = new Map<string, RoadGraphNode>();
   private adjacency = new Map<string, RoadGraphEdge[]>();

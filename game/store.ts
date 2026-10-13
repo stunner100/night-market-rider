@@ -4,6 +4,7 @@ import { latLonToWorld } from "./world/coordinates";
 import type { ContactId } from "./calls";
 import type { CheckpointState } from "./checkpoint";
 import { ARCHETYPES, type ArchetypeId } from "./archetypes";
+import type { DropSite, VendorSite } from "./world/delivery-sites";
 
 export type Phase =
   | "offline"
@@ -33,6 +34,13 @@ export interface Order {
   pickupZ: number;
   dropX: number;
   dropZ: number;
+  /** Real places from the baked map, when available. */
+  vendorSite?: VendorSite;
+  dropSite?: DropSite;
+  /** Ghanaian-style directions to the customer, e.g. "H/No. 14, Boundary Rd — blue gate · near …". */
+  address?: string;
+  /** Short place for the meeting: "the blue gate (H/No. 14)", "the porter's lodge". */
+  meeting?: string;
 }
 
 interface Toast { id: number; text: string; }
@@ -222,7 +230,7 @@ const GEO_PADS = [
 
 export const MIN_PICKUP_METRES = 280;
 
-function priceOrder(index: number, pickup: { x: number; z: number }, drop: { x: number; z: number }) {
+export function priceOrder(index: number, pickup: { x: number; z: number }, drop: { x: number; z: number }) {
   const directMetres = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
   const distKm = Math.max(0.35, directMetres / 1000);
   const generous = index < 3 ? 1.45 : index < 7 ? 1.2 : 1.0;

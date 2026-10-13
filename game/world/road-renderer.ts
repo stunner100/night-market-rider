@@ -72,6 +72,17 @@ function segmentGeometry(
   return geometry;
 }
 
+/** Round cap at a vertex so consecutive pieces of a bending road meet without wedge gaps. */
+function jointGeometry(x: number, z: number, width: number, y: number): THREE.BufferGeometry {
+  const geometry = new THREE.CircleGeometry(width * 0.5, 14);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(x, y, z);
+  const pos = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 18, pos.getZ(i) / 18);
+  return geometry;
+}
+
 function pushDashedCenterLine(
   out: THREE.BufferGeometry[],
   ax: number,
@@ -126,8 +137,14 @@ export function buildRoadGroup(roads: WorldRoad[], mobile = false): THREE.Group 
         if (shoulder) shoulderGeometries.push(shoulder);
       }
 
-      const geo = segmentGeometry(a.x, a.z, b.x, b.z, width, paved ? 0.064 : 0.052);
-      if (geo) geometries.push(geo);
+      const surfaceY = paved ? 0.064 : 0.052;
+      const geo = segmentGeometry(a.x, a.z, b.x, b.z, width, surfaceY);
+      if (geo) {
+        geometries.push(geo);
+        // Caps at both ends: chunk pieces are single segments, so every bend needs one.
+        geometries.push(jointGeometry(a.x, a.z, width, surfaceY - 0.001), jointGeometry(b.x, b.z, width, surfaceY - 0.001));
+        if (paved) shoulderGeometries.push(jointGeometry(a.x, a.z, width + 1.15, 0.025), jointGeometry(b.x, b.z, width + 1.15, 0.025));
+      }
 
       if (MARKED.has(road.highway) && width >= 5.4) {
         pushDashedCenterLine(centerLineGeometries, a.x, a.z, b.x, b.z);
