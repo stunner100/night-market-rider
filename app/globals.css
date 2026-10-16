@@ -2049,6 +2049,15 @@ kbd {
 .touch-drift {
   background: #e8590ccc !important;
 }
+/* Sits above the pedal row so the row keeps fitting narrow phones. */
+.touch-horn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  background: #f2e35ccc !important;
+  color: #111 !important;
+  font-family: inherit;
+}
 @media (prefers-reduced-motion: reduce) {
   .feel-drift { animation: none; }
 }

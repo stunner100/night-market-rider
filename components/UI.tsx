@@ -664,6 +664,11 @@ export default function UI({
                 DRIFT
               </div>
             )}
+            {s.mounted && (
+              <button type="button" className="touch-btn touch-horn" onPointerDown={() => eng?.honk()}>
+                HORN
+              </button>
+            )}
           </div>
           {stage === "offer" && s.order && (
             <section className="order-offer" aria-label="New delivery offer">

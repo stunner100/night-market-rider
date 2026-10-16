@@ -86,6 +86,24 @@ export function createBusMesh(): THREE.Group {
   lamps(g, 3.88, -3.88, 1.08, .73); brake(g, -3.9, 1.28, 1.42); for (const [x, z] of [[-1.16, 2.55], [1.16, 2.55], [-1.16, -2.55], [1.16, -2.55]] as const) wheel(g, x, z, .48, dark, chrome); return g;
 }
 
+/** National Ambulance Service van: white body, red band, light bar that flashes. */
+export function createAmbulanceMesh(): THREE.Group {
+  const g = new THREE.Group(); g.name = "Ambulance";
+  const white = paint(0xf4f5f2); const red = pbr(0xd62828, .45); const dark = pbr(0x16191c, .8, .15); const chrome = pbr(0xdfe3e6, .16, .9); const win = glass();
+  g.add(box(2.2, 1.95, 4.9, white, 0, 1.5, -.15, .2), box(2.1, .95, 1.0, white, 0, 1.0, 2.55, .2), box(2.22, .36, 4.85, dark, 0, .64, 0, .06));
+  const wind = box(1.95, .7, .045, win, 0, 1.8, 2.42, .02); wind.rotation.x = -.18; g.add(wind);
+  for (const sx of [-1, 1]) { g.add(box(.03, .28, 4.7, red, sx * 1.11, 1.32, -.15, .01), box(.03, .52, .9, win, sx * 1.11, 1.86, 1.55, .01)); }
+  g.add(box(2.1, .28, .05, red, 0, 1.32, -2.62, .01));
+  // Light bar: red and blue halves named so the event can flash them.
+  const redLamp = box(.62, .16, .32, new THREE.MeshBasicMaterial({ color: 0x5a0b0b }), -.38, 2.56, 1.6, .04); redLamp.name = "siren-red";
+  const blueLamp = box(.62, .16, .32, new THREE.MeshBasicMaterial({ color: 0x0b1b5a }), .38, 2.56, 1.6, .04); blueLamp.name = "siren-blue";
+  g.add(box(1.5, .08, .38, dark, 0, 2.46, 1.6, .02), redLamp, blueLamp);
+  lamps(g, 3.06, -2.6, .95, .74); brake(g, -2.61, .82, 1.3);
+  glowAnchor(g, "glow-siren-red", -.38, 2.62, 1.6); glowAnchor(g, "glow-siren-blue", .38, 2.62, 1.6);
+  for (const [x, z] of [[-1.05, 1.7], [1.05, 1.7], [-1.05, -1.6], [1.05, -1.6]] as const) wheel(g, x, z, .42, dark, chrome);
+  return g;
+}
+
 const OKADA_SHIRTS = [0xd94d3f, 0x2664a3, 0x1e8b65, 0xf28c35, 0xe8e7df, 0x7b3f91, 0x252a2f];
 const OKADA_BIKES = [0xb3261e, 0x1c3f8c, 0x111315, 0xe8e7df, 0x2f6b3a];
 

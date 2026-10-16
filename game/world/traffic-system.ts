@@ -30,6 +30,10 @@ interface Vehicle extends TrafficBody {
   /** Seconds spent held up behind another vehicle or the rider. */
   blocked: number;
   sway: number;
+  /** Seconds left pulling over after the rider honked. */
+  yieldT: number;
+  /** Extra kerb-side offset, eased in and out. */
+  laneBump: number;
 }
 
 // Ghana drives on the right: offset each vehicle into its own lane.
@@ -114,9 +118,28 @@ export class TrafficSystem {
       this.vehicles.push({
         mesh, kind, wheels, brake, active: false, stopped: 0, speed: 0, cruise: cruiseFor(kind),
         ax: 0, az: 0, bx: 0, bz: 0, length: 1, traveled: 0, toId: "", highway: "",
-        lane: 0, yaw: 0, blocked: 0, sway: Math.random() * 10,
+        lane: 0, yaw: 0, blocked: 0, sway: Math.random() * 10, yieldT: 0, laneBump: 0,
       });
     }
+  }
+
+  /**
+   * Rider honked ("Agoo!"): vehicles ahead going the same way ease toward the
+   * kerb and slow a little so the bike can pass. Returns how many yielded.
+   */
+  honk(x: number, z: number, heading: number): number {
+    const fx = Math.sin(heading), fz = Math.cos(heading);
+    let n = 0;
+    for (const v of this.vehicles) {
+      if (!v.active || !v.mesh.visible) continue;
+      const dx = v.mesh.position.x - x, dz = v.mesh.position.z - z;
+      const ahead = dx * fx + dz * fz;
+      const lateral = Math.abs(dx * fz - dz * fx);
+      let dYaw = Math.abs(v.yaw - heading) % (Math.PI * 2);
+      if (dYaw > Math.PI) dYaw = Math.PI * 2 - dYaw;
+      if (ahead > 2 && ahead < 32 && lateral < 4 && dYaw < 0.8) { v.yieldT = 3; n++; }
+    }
+    return n;
   }
 
   bodies(): TrafficBody[] {
@@ -218,6 +241,7 @@ export class TrafficSystem {
         if (speed < vehicle.cruise * 0.3) heldUp = true;
       }
     }
+    if (vehicle.yieldT > 0) { vehicle.yieldT -= dt; speed *= 0.72; }
     vehicle.speed = speed;
     vehicle.blocked = heldUp ? vehicle.blocked + dt : 0;
     if (vehicle.blocked > 1.2 && Math.random() < dt * 0.6 && this.onHonk) {
@@ -246,7 +270,8 @@ export class TrafficSystem {
     vehicle.yaw += dy * Math.min(1, dt * 6);
     // Okadas weave a little within their lane.
     vehicle.sway += dt;
-    const lane = vehicle.lane + (vehicle.kind === "okada" ? Math.sin(vehicle.sway * 0.9) * 0.45 : 0);
+    vehicle.laneBump += ((vehicle.yieldT > 0 ? 1.3 : 0) - vehicle.laneBump) * Math.min(1, dt * 2.5);
+    const lane = vehicle.lane + vehicle.laneBump + (vehicle.kind === "okada" ? Math.sin(vehicle.sway * 0.9) * 0.45 : 0);
     vehicle.mesh.position.set(x - Math.cos(yaw) * lane, 0, z + Math.sin(yaw) * lane);
     vehicle.mesh.rotation.y = vehicle.yaw;
     if (vehicle.kind === "okada") vehicle.mesh.rotation.z = THREE.MathUtils.clamp(-dy * 0.6, -0.3, 0.3);

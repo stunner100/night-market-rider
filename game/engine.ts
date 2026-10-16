@@ -12,6 +12,7 @@ import { orderDetails, prepSeconds } from "./delivery/order-details";
 import { settleDelivery } from "./delivery/settlement";
 import { applyOrderKind, ORDER_KINDS } from "./delivery/order-kind";
 import { ALL_GOALS_BONUS, applyGoalEvent, GOAL_DEFS, goalLabel, pickGoals, type GoalEvent } from "./shift-goals";
+import { Corridor, nextEventDelay, RoadEvents, type CorridorPoint, type RoadEventOutcome } from "./world/road-events";
 import { DestinationBeacon, RouteRibbon } from "./world/route-ribbon";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, buildHelmet, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
@@ -106,6 +107,13 @@ export class Engine {
   private roadWet = 0;
   /** Riding distance and slipstream time are batched and flushed with the HUD. */
   private goalRide = 0;
+  private roadEvents!: RoadEvents;
+  private roadEventAt = 60;
+  private honkedFrame = false;
+  private honkCool = 0;
+  private agooToastAt = 0;
+  private eventAudioAt = 0;
+  private bandStep = 0;
   private goalSlip = 0;
   private streaks = new SpeedStreaks();
   chevrons: THREE.Mesh[] = [];
@@ -613,6 +621,7 @@ export class Engine {
     restoreProgress();
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
+    this.roadEvents = new RoadEvents(this.scene, this.isMobile);
     this.puffs = new ParticleField(this.isMobile ? 120 : 260);
     this.sparkField = new ParticleField(90, true, 1.1);
     this.scene.add(this.routeRibbon.mesh, this.beacon.group, ...this.shopLights,
@@ -732,7 +741,7 @@ export class Engine {
     }
     this.audio.ensure();
     this._applyKey(e.code, true);
-    if (e.code === "KeyH" && !e.repeat) { this.audio.horn(); useGame.getState().pushToast(pick(STREET.horn)); }
+    if (e.code === "KeyH" && !e.repeat) this.honk();
     if (e.repeat) return;
     if (e.code === 'KeyE') this.toggleMount();
     if (e.code === 'KeyF') this.interact();
@@ -788,6 +797,7 @@ export class Engine {
   }
 
   quitToMenu() {
+    this.roadEvents.clear();
     const s = useGame.getState();
     persistProgress();
     if(s.score>0)saveBoard(s.nickname,s.score);
@@ -825,6 +835,8 @@ export class Engine {
     s.set({ incomingCall: null });
     this.raise(s.tutorialDone ? 'shiftReturn' : 'shiftStart');
     s.set({ shiftGoals: pickGoals((Math.random() * 2 ** 31) | 0) });
+    this.roadEvents.clear();
+    this.roadEventAt = this.shiftSeconds + nextEventDelay(Math.random, true);
     this.goalRide = 0; this.goalSlip = 0;
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0; this.camHeading = this.heading; this.steerSmooth = 0;
     if (this.osmActive) {
@@ -1279,6 +1291,134 @@ export class Engine {
     saveBoard(s.nickname || "Rider", s.score);
   }
 
+  /** Horn: "Agoo!" — traffic ahead pulls over; honking at a funeral is rude. */
+  honk() {
+    if (this.honkCool > 0) return;
+    this.honkCool = 0.6;
+    this.audio.horn();
+    this.honkedFrame = true;
+    const s = useGame.getState();
+    const yielded = useGame.getState().mounted && this.osmPlay ? this.osmPlay.honk(this.px, this.pz, this.heading) : 0;
+    const now = performance.now();
+    if (yielded > 0 && now - this.agooToastAt > 4000) { this.agooToastAt = now; s.pushToast("📯 Agoo! Traffic dey give way"); }
+    else if (!yielded) s.pushToast(pick(STREET.horn));
+  }
+
+  /** Road built forward from the rider (following the route when navigating) and back behind. */
+  private roadCorridor(): Corridor | null {
+    if (!this.osmActive) return null;
+    const start = this.osmWorld.nearestRoadFrame(this.px, this.pz, 15);
+    if (!start) return null;
+    const march = (x: number, z: number, dx: number, dz: number, length: number) => {
+      const pts: CorridorPoint[] = [];
+      let px = x, pz = z, fx = dx, fz = dz;
+      for (let d = 0; d < length; d += 5) {
+        const f = this.osmWorld.nearestRoadFrame(px + fx * 5, pz + fz * 5, 12);
+        if (!f) break;
+        let tx = f.tangentX, tz = f.tangentZ;
+        if (tx * fx + tz * fz < 0) { tx = -tx; tz = -tz; }
+        if (Math.hypot(f.x - px, f.z - pz) < 1) { px += fx * 5; pz += fz * 5; continue; }
+        px = f.x; pz = f.z; fx = tx; fz = tz;
+        pts.push({ x: px, z: pz });
+      }
+      return pts;
+    };
+    let hx = Math.sin(this.heading), hz = Math.cos(this.heading);
+    if (start.tangentX * hx + start.tangentZ * hz < 0) { hx = -start.tangentX; hz = -start.tangentZ; } else { hx = start.tangentX; hz = start.tangentZ; }
+    const back = march(start.x, start.z, -hx, -hz, 110).reverse();
+    let ahead: CorridorPoint[];
+    const route = this._osmRoute;
+    if (route.length > 2 && this.routeRibbon.mesh.visible) {
+      // Put the event on the way to the vendor/customer.
+      let best = 0, bestD = Infinity;
+      route.forEach((p, i) => { const d = Math.hypot(p.x - this.px, p.z - this.pz); if (d < bestD) { bestD = d; best = i; } });
+      ahead = route.slice(best + 1);
+    } else ahead = march(start.x, start.z, hx, hz, 230);
+    const pts = [...back, { x: start.x, z: start.z }, ...ahead].filter((p, i, all) => i === 0 || Math.hypot(p.x - all[i - 1].x, p.z - all[i - 1].z) > 0.5);
+    const corridor = new Corridor(pts);
+    return corridor.length > 150 ? corridor : null;
+  }
+
+  /** Dev/QA: start an event now. */
+  triggerRoadEvent(kind: 'funeral' | 'siren') {
+    const corridor = this.roadCorridor();
+    if (!corridor) return false;
+    const r = corridor.project(this.px, this.pz);
+    if (kind === 'funeral') this.roadEvents.startFuneral(corridor, r.s);
+    else this.roadEvents.startSiren(corridor, r.s, Math.abs(this.speed));
+    return true;
+  }
+
+  private updateRoadEvents(dt: number, riding: boolean) {
+    this.honkCool = Math.max(0, this.honkCool - dt);
+    const s = useGame.getState();
+    if (this.osmActive && riding) {
+      if (!this.roadEvents.active && this.shiftSeconds >= this.roadEventAt) {
+        // Only while actually riding, and never on top of a police stop.
+        if (s.mounted && Math.abs(this.speed) > 5 && !s.checkpoint) this.triggerRoadEvent(Math.random() < 0.5 ? 'funeral' : 'siren');
+        this.roadEventAt = this.shiftSeconds + nextEventDelay(Math.random, false);
+      }
+      const t = performance.now() / 1000;
+      for (const o of this.roadEvents.update({ x: this.px, z: this.pz, speed: this.speed, mounted: s.mounted, dt, honked: this.honkedFrame }, t)) this.onRoadEvent(o);
+      this.roadEventSound(dt);
+    }
+    this.honkedFrame = false;
+  }
+
+  private onRoadEvent(o: RoadEventOutcome) {
+    const s = useGame.getState();
+    switch (o.type) {
+      case 'warn':
+        s.pushToast(o.kind === 'funeral' ? "⚰️ Funeral procession ahead! Slow down and show respect." : "🚑 Ambulance behind! Move to the side — give way!");
+        break;
+      case 'respect':
+        s.pushToast(o.why);
+        s.set({ xp: s.xp + 120, score: s.score + 120, rating: Math.min(5, Math.round((s.rating + 0.05) * 100) / 100) });
+        this.audio.coin();
+        break;
+      case 'disrespect':
+        s.pushToast(o.why);
+        s.set({ rating: Math.max(1, Math.round((s.rating - 0.15) * 100) / 100) });
+        this.audio.fail();
+        break;
+      case 'yield':
+        s.pushToast("🚑 You gave way. Good citizen! +XP");
+        s.set({ xp: s.xp + 100, score: s.score + 100 });
+        this.audio.coin();
+        break;
+      case 'blocked':
+        s.pushToast("🚑 Ah! Siren means GIVE WAY! Move aside.");
+        s.set({ rating: Math.max(1, Math.round((s.rating - 0.2) * 100) / 100) });
+        this.audio.fail();
+        break;
+      case 'hit':
+        this.crash(this.roadEvents.kind === 'siren' ? "🚑 You hit the ambulance! Chale!" : "⚰️ You crash into the funeral! Ei!");
+        break;
+      case 'end':
+        break;
+    }
+  }
+
+  /** Two-tone siren and a slow brass line for the band, louder as they get closer. */
+  private roadEventSound(dt: number) {
+    this.eventAudioAt -= dt;
+    if (!this.roadEvents.active || this.eventAudioAt > 0) return;
+    const d = this.roadEvents.distanceTo(this.px, this.pz);
+    const level = Math.max(0, 1 - d / 150);
+    if (level <= 0) { this.eventAudioAt = 0.4; return; }
+    if (this.roadEvents.kind === 'siren') {
+      this.eventAudioAt = 0.45;
+      this.bandStep++;
+      this.audio.blip(this.bandStep % 2 ? 960 : 720, 0.44, "square", 0.1 * level);
+    } else {
+      // A slow minor brass phrase, the way the funeral bands play in the street.
+      const tune = [220, 262, 294, 262, 220, 196, 220, 0];
+      this.eventAudioAt = 0.42;
+      const f = tune[this.bandStep++ % tune.length];
+      if (f) { this.audio.blip(f, 0.38, "sawtooth", 0.06 * level); this.audio.blip(f * 1.5, 0.38, "triangle", 0.03 * level); }
+    }
+  }
+
   /** Feed a shift-goal event; pays the bonus for any goal it completes. */
   goalEvent(e: GoalEvent) {
     const s = useGame.getState();
@@ -1332,6 +1472,7 @@ export class Engine {
         this.glows.add(_glowPos, 0xff2a1a, braking ? 0.9 : 0.6, braking ? 0.85 : 0.35 * dark);
       }
     }
+    for (const g of this.roadEvents.sirenGlows()) this.glows.add(g.pos, g.color, 1.6, 0.9);
     this.glows.end();
     const kmh = Math.abs(this.speed) * 3.6;
     const rush = s.mounted ? Math.min(1, Math.max(0, (kmh - 65) / 45) * 0.8 + (this.boostOn ? 0.5 : 0)) : 0;
@@ -1699,6 +1840,7 @@ export class Engine {
       this.updateNav({...makeOrder(0),pickupX:dest.x,pickupZ:dest.z},'toPickup');
     } else this.updateNav(o, phase);
     this.updateCamera(dt, false);
+    this.updateRoadEvents(dt, riding);
     this.updateFx(dt);
     this.applySky(this.nightF);
     this.updateCity(dt, t);
@@ -2047,6 +2189,7 @@ export class Engine {
     this.beacon.dispose();
     disposeTextureCache();
     for (const fx of [this.puffs, this.sparkField, this.glows, this.streaks]) fx.dispose();
+    this.roadEvents.clear();
     this.clearNPCs();
     if (this.targetLabel) {
       const mat = this.targetLabel.material as THREE.SpriteMaterial;
