@@ -1071,22 +1071,27 @@ kbd {
     left: 12px;
     right: 12px;
     top: auto;
-    bottom: 228px;
+    bottom: 284px;
     width: auto;
     max-height: calc(100% - 340px);
     overflow: auto;
     font-size: 12px;
   }
   .cash-panel {
-    bottom: 228px;
+    bottom: 236px;
   }
+  /* Sits above the radio card (bottom 132–220px on phones). */
   .interact-prompt {
-    bottom: 176px;
+    bottom: 236px;
   }
+  /* Directly under the header; the task card moves down beneath it. */
   .nav-banner {
-    top: 262px;
+    top: 74px;
+    left: 12px;
+    transform: none;
     min-width: 0;
-    width: calc(100% - 24px);
+    /* Leave room for the Phone / Get down buttons on the right. */
+    width: calc(100% - 118px);
     grid-template-columns: 44px 1fr auto;
     gap: 10px;
     padding: 7px 10px 7px 7px;
@@ -1223,8 +1228,14 @@ kbd {
     font-size: 9px;
   }
   .toasts {
-    bottom: 248px;
+    bottom: 290px;
     font-size: 10px;
+  }
+  .nav-banner + .task-panel {
+    top: 146px;
+  }
+  .nav-eta span {
+    display: none;
   }
   .task-panel .muted {
     font-size: 10px;
