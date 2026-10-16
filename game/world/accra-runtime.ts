@@ -185,13 +185,13 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
       const dx=Math.max(0,chunk.data.cx*size-x,x-(chunk.data.cx+1)*size);
       const dz=Math.max(0,chunk.data.cz*size-z,z-(chunk.data.cz+1)*size);
       const distance=Math.hypot(dx,dz);
+      // Whole chunks this far out are almost fully fogged; the horizon rings cover the skyline.
+      chunk.group.visible=distance<(this.mobile?300:420);
       const people=chunk.group.getObjectByName('osm-people');if(people)people.visible=distance<(this.mobile?65:115);
       const dressing=chunk.group.getObjectByName('osm-street-dressing');
       if(dressing)for(const child of dressing.children){
         if(child.name==='accra-commercial-frontage'){
           child.visible=Math.hypot(child.position.x-x,child.position.z-z)<(this.mobile?110:180);
-          const light=child.getObjectByName('shop-light') as THREE.PointLight;
-          if(light)light.intensity=0; // only the active mission and base use dynamic shop lights
         }
       }
     }
@@ -258,6 +258,7 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
         group.add(buildStreetDressingGroup(data, this.mobile));
         group.add(buildPeopleGroup(data, this.mobile));
         group.add(buildVegetationGroup(data, this.cover, this.manifest?.chunkSize ?? 256, this.mobile));
+        trimShadowCasters(group);
         this.group.add(group);
         this.loaded.set(key, { data, group });
         this.roadIndex.set(key, data.roads);
@@ -434,4 +435,19 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
     else material.dispose();
     this.scene.remove(this.group);
   }
+}
+
+/**
+ * Small props (bottles, chairs, signs, limbs) barely show in a 2048 shadow map
+ * but each one is drawn again in the shadow pass. Keep shadows on bulky meshes.
+ */
+function trimShadowCasters(root: THREE.Object3D) {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || !object.castShadow) return;
+    const geometry = object.geometry;
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const scale = Math.max(object.scale.x, object.scale.y, object.scale.z);
+    // Instanced batches (crowds, trees) stay; they are one draw call each.
+    if (!(object instanceof THREE.InstancedMesh) && (geometry.boundingSphere?.radius ?? 0) * scale < 0.6) object.castShadow = false;
+  });
 }

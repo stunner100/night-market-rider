@@ -100,6 +100,8 @@ export class Engine {
   particles: Particle[] = [];
   chevrons: THREE.Mesh[] = [];
   private routeRibbon = new RouteRibbon();
+  /** Fixed pool (vendor, customer, base): a constant light count keeps shaders stable. */
+  private shopLights = [0, 1, 2].map(() => new THREE.PointLight(0xffd7a0, 0, 16, 2));
   private beacon = new DestinationBeacon();
   dustTimer = 0;
   nightF = 0; // 0 day → 1 night
@@ -568,9 +570,12 @@ export class Engine {
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
     this.quality = this.isMobile ? "low" : "high";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.5 : 2));
+    // Full retina (2x) quadruples shaded pixels for little visible gain at speed.
+    this.pixelRatio = Math.min(window.devicePixelRatio, this.isMobile ? 1.25 : 1.5);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = false; // refreshed every other frame in loop()
     // HDR tone mapping for photorealistic lighting
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.25;
@@ -594,7 +599,7 @@ export class Engine {
     restoreProgress();
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
-    this.scene.add(this.routeRibbon.mesh, this.beacon.group);
+    this.scene.add(this.routeRibbon.mesh, this.beacon.group, ...this.shopLights);
     // nav chevrons
     const geo = new THREE.ConeGeometry(0.55, 1.1, 4);
     for (let i = 0; i < 6; i++) {
@@ -1056,12 +1061,14 @@ export class Engine {
 
   private animateNPCs(t: number, phase: string, dt: number) {
     const order = useGame.getState().order;
-    for(const place of [this.vendorPlace,this.customerPlace,this.basePlace]) {
-      if(!place)continue;
+    [this.vendorPlace,this.customerPlace,this.basePlace].forEach((place,i)=>{
+      const lamp=this.shopLights[i];
+      if(!place){lamp.intensity=0;return;}
       place.visible=place.position.distanceTo(this.rig.group.position)<200;
-      const lamp=place.getObjectByName('shop-light') as THREE.PointLight;
-      if(lamp)lamp.intensity=this.nightF*28;
-    }
+      const anchor=place.getObjectByName('shop-light');
+      if(anchor&&place.visible){anchor.getWorldPosition(lamp.position);lamp.intensity=this.nightF*28;}
+      else lamp.intensity=0;
+    });
     if (order && (phase === "offer" || phase === "toPickup")) this.settleRoadside(this.vendorNPC, order.pickupX, order.pickupZ);
     if (order && phase === "toDropoff" && !order.dropSite) this.settleRoadside(this.customerNPC, order.dropX, order.dropZ);
     this.animatePickupScene(t, dt);
@@ -1891,13 +1898,48 @@ export class Engine {
     if (Math.abs(this.camera.fov - prevFov) > 0.001) this.camera.updateProjectionMatrix();
   }
 
-  loop = () => {
+  private pixelRatio = 1;
+  private lastFrameAt = 0;
+  private frameCount = 0;
+  private slowFrames = 0;
+  private perfWindowAt = 0;
+  private perfFrames = 0;
+
+  loop = (now = performance.now()) => {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
+    // Cap at 60 fps (30 in menus): 120 Hz displays otherwise run the GPU flat out.
+    const phase = useGame.getState().phase;
+    const idle = phase === "menu" || phase === "loading" || useGame.getState().paused;
+    const minGap = idle ? 1000 / 30 : 1000 / 60;
+    if (now - this.lastFrameAt < minGap - 1.5) return;
+    this.lastFrameAt = now;
     const dt = Math.min(0.05, this.clock.getDelta());
     try { this.update(dt); } catch (e) { console.error("Game update error:", e); }
+    // Moving sun shadows only need refreshing every other frame.
+    this.frameCount++;
+    this.renderer.shadowMap.needsUpdate = this.frameCount % 2 === 0;
     this.renderer.render(this.scene, this.camera);
+    if (!idle) this.adaptQuality(now, dt);
   };
+
+  /** Drop render resolution in steps while the game can't hold ~50 fps. */
+  private adaptQuality(now: number, dt: number) {
+    // Background/unfocused windows get throttled by the browser; that isn't a slow machine.
+    if (document.hidden || !document.hasFocus()) { this.perfWindowAt = 0; this.perfFrames = 0; this.slowFrames = 0; return; }
+    if (!this.perfWindowAt) this.perfWindowAt = now;
+    this.perfFrames++;
+    if (dt > 1 / 45) this.slowFrames++;
+    if (now - this.perfWindowAt < 3000) return;
+    const fps = this.perfFrames / ((now - this.perfWindowAt) / 1000);
+    const slowShare = this.slowFrames / this.perfFrames;
+    this.perfWindowAt = now; this.perfFrames = 0; this.slowFrames = 0;
+    if ((fps < 50 || slowShare > 0.25) && this.pixelRatio > 0.85) {
+      this.pixelRatio = Math.max(0.85, Math.round((this.pixelRatio - 0.2) * 100) / 100);
+      this.renderer.setPixelRatio(this.pixelRatio);
+      this.resize();
+    }
+  }
 
   dispose() {
     this.running = false;

@@ -147,10 +147,13 @@ export function buildDeliveryPlace(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
-  const light = new THREE.PointLight(0xffd7a0, 0, 16, 2);
-  light.position.set(0, 2.8, -0.8);
-  light.name = "shop-light";
-  group.add(light);
+  // Light anchor only. Real PointLights live in a fixed engine pool: a light
+  // inside every shop front made each one add per-pixel cost to every
+  // material, and showing/hiding them forced full shader recompiles.
+  const lightAnchor = new THREE.Object3D();
+  lightAnchor.position.set(0, 2.8, -0.8);
+  lightAnchor.name = "shop-light";
+  group.add(lightAnchor);
   return group;
 }
 export function disposeDeliveryPlace(group: THREE.Group) {

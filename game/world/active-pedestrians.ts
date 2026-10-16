@@ -131,6 +131,8 @@ export class ActivePedestrians {
         this.park(walker);
         continue;
       }
+      // Each walker is ~50 draw calls; past ~55 m they are a few pixels tall.
+      walker.mesh.visible = away < 55;
       this.step(walker, dt, elapsed);
     }
     this.spawnTimer -= dt;

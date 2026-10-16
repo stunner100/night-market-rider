@@ -130,6 +130,7 @@ export class TrafficSystem {
       this.advance(vehicle, dt, playerX, playerZ);
       const away = Math.hypot(vehicle.mesh.position.x - playerX, vehicle.mesh.position.z - playerZ);
       if (away > 200) this.park(vehicle);
+      else vehicle.mesh.visible = away < 150;
     }
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
