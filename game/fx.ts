@@ -249,3 +249,60 @@ export class SpeedStreaks {
     this.material.dispose();
   }
 }
+
+const MOTES = 180;
+const MOTE_BOX = 26;
+
+/** Harmattan dust hanging in the daylight air around the camera. */
+export class DustMotes {
+  readonly points: THREE.Points;
+  private seeds = new Float32Array(MOTES * 4);
+
+  constructor() {
+    this.points = new THREE.Points(pointGeometry(MOTES), pointMaterial(false, 1.4));
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 5;
+    const geo = this.points.geometry;
+    const col = geo.attributes.aColor.array as Float32Array;
+    const size = geo.attributes.aSize.array as Float32Array;
+    _c.setHex(0xf3dcb4);
+    for (let i = 0; i < MOTES; i++) {
+      this.seeds.set([Math.random(), Math.random(), Math.random(), Math.random() * 10], i * 4);
+      col.set([_c.r, _c.g, _c.b], i * 3);
+      size[i] = 0.035 + Math.random() * 0.05;
+    }
+    geo.setDrawRange(0, MOTES);
+    geo.attributes.aColor.needsUpdate = true;
+    geo.attributes.aSize.needsUpdate = true;
+  }
+
+  /** `amount` 0..1: full in dry daylight, none at night or in rain. */
+  update(time: number, amount: number, camera: THREE.Camera) {
+    this.points.visible = amount > 0.02;
+    if (!this.points.visible) return;
+    const geo = this.points.geometry;
+    const pos = geo.attributes.position.array as Float32Array;
+    const alpha = geo.attributes.aAlpha.array as Float32Array;
+    const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+    for (let i = 0; i < MOTES; i++) {
+      const sx = this.seeds[i * 4], sy = this.seeds[i * 4 + 1], sz = this.seeds[i * 4 + 2], ph = this.seeds[i * 4 + 3];
+      // Slow drift with the breeze, wrapped into a box that follows the camera.
+      const wrap = (v: number, c: number) => c + ((((v - c) % MOTE_BOX) + MOTE_BOX * 1.5) % MOTE_BOX) - MOTE_BOX / 2;
+      pos[i * 3] = wrap(sx * MOTE_BOX + time * 0.45 + Math.sin(time * 0.7 + ph) * 0.4, cx);
+      pos[i * 3 + 1] = cy - 2.5 + ((sy * 7 + Math.sin(time * 0.5 + ph) * 0.3) % 7);
+      pos[i * 3 + 2] = wrap(sz * MOTE_BOX + time * 0.2 + Math.cos(time * 0.6 + ph) * 0.4, cz);
+      alpha[i] = amount * (0.35 + 0.25 * Math.sin(time * 1.7 + ph));
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.aAlpha.needsUpdate = true;
+  }
+
+  setViewport(heightPx: number) {
+    (this.points.material as THREE.ShaderMaterial).uniforms.uScale.value = heightPx / 2;
+  }
+
+  dispose() {
+    this.points.geometry.dispose();
+    (this.points.material as THREE.Material).dispose();
+  }
+}

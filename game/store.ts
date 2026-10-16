@@ -129,6 +129,14 @@ export interface GameState {
   shiftGoals: GoalState[];
   /** Render quality: "high" adds ink outlines and a sharper render. */
   graphics: "high" | "low";
+  /** Live stunt combo for the HUD; null when nothing is chaining. */
+  combo: { count: number; points: number; timer: number; last: string | null } | null;
+  /** End-of-shift results, shown on the summary screen. */
+  shiftSummary: {
+    reason: "strikes" | "timeUp"; earned: number; deliveries: number; xp: number;
+    goalsDone: number; goalsTotal: number; bestCombo: number; bestStreak: number;
+    rating: number; ratingChange: number; km: number; respected: number; disrespected: number;
+  } | null;
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -203,6 +211,8 @@ export const useGame = create<GameState>((set, get) => ({
   slipstream: 0,
   shiftGoals: [],
   graphics: "high",
+  combo: null,
+  shiftSummary: null,
   sound: true,
   nickname: "Rider",
   foodCondition: 100,

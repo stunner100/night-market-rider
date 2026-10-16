@@ -865,6 +865,93 @@ li.is-done em {
   border-color: transparent;
   color: #10201b;
 }
+.combo-meter {
+  position: absolute;
+  right: 26px;
+  bottom: 190px;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 120px;
+  padding-bottom: 6px;
+  color: #fff;
+  text-shadow: 0 2px 8px #000;
+  animation: prompt-in 0.15s ease;
+}
+.combo-meter b {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--nm-yellow);
+}
+.combo-meter.is-hot b {
+  color: #ff8a3d;
+}
+.combo-meter span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.combo-meter i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--nm-yellow);
+}
+.shift-summary {
+  width: min(420px, calc(100% - 32px));
+}
+.summary-earned {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #ffffff0d;
+  text-align: center;
+}
+.summary-earned span {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #bbc5bc;
+  text-transform: uppercase;
+}
+.summary-earned strong {
+  font-size: 38px;
+  color: var(--nm-yellow);
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin: 0 0 18px;
+  text-align: left;
+}
+.summary-grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #ffffff14;
+  font-size: 13px;
+}
+.summary-grid dt {
+  color: #bbc5bc;
+}
+.summary-grid dd {
+  margin: 0;
+  font-weight: 700;
+}
+@media (max-width: 760px) {
+  .combo-meter {
+    right: 14px;
+    bottom: 248px;
+    min-width: 90px;
+  }
+  .combo-meter b {
+    font-size: 24px;
+  }
+}
 .food-meter {
   position: relative;
   display: flex;

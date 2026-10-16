@@ -79,6 +79,33 @@ function rand(seed: number): () => number {
 interface Plant { x: number; z: number; s: number; kind: "tree" | "palm" | "bush" }
 
 /** Trees and bushes for one chunk: dense in forest/scrub, sparse savannah elsewhere, never on roads or buildings. */
+/** Shared clock for the wind sway on every tree, palm and bush. */
+const windTime = { value: 0 };
+export function setWindTime(t: number) { windTime.value = t; }
+
+/**
+ * Leaves sway in the breeze, in the vertex shader: no extra draw calls. Each
+ * instance gets its own phase from its position, and higher vertices move more.
+ */
+function swaying<T extends THREE.MeshStandardMaterial>(material: T, amount: number): T {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindTime = windTime;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uWindTime;")
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  vec3 ip = instanceMatrix[3].xyz;
+  float ph = ip.x * 0.13 + ip.z * 0.17;
+  float lift = max(0.0, position.y + 1.0);
+  float gust = 0.75 + 0.25 * sin(uWindTime * 0.31 + ip.x * 0.01);
+  transformed.x += sin(uWindTime * 1.35 + ph) * ${amount.toFixed(3)} * lift * gust;
+  transformed.z += cos(uWindTime * 1.05 + ph * 1.3) * ${(amount * 0.7).toFixed(3)} * lift * gust;
+#endif`);
+  };
+  material.customProgramCacheKey = () => `sway-${amount}`;
+  return material;
+}
+
 export function buildVegetationGroup(chunk: WorldChunk, cover: CoverArea[], chunkSize: number, mobile: boolean): THREE.Group {
   const group = new THREE.Group();
   group.name = "osm-vegetation";
@@ -124,12 +151,12 @@ export function buildVegetationGroup(chunk: WorldChunk, cover: CoverArea[], chun
   const bushes = plants.filter(p => p.kind === "bush");
   const bark = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 0.95 });
   instanced(new THREE.CylinderGeometry(0.2, 0.3, 3.4, 5), bark, trees, p => { dummy.position.set(p.x, 1.7 * p.s, p.z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(p.s); }, true);
-  instanced(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshStandardMaterial({ color: 0x46612f, roughness: 0.95, flatShading: true }), trees,
+  instanced(new THREE.IcosahedronGeometry(2, 0), swaying(new THREE.MeshStandardMaterial({ color: 0x46612f, roughness: 0.95, flatShading: true }), 0.06), trees,
     p => { dummy.position.set(p.x, 4.1 * p.s, p.z); dummy.rotation.set(0, p.x % 3, 0); dummy.scale.set(1.25 * p.s, 0.85 * p.s, 1.15 * p.s); }, true);
   instanced(new THREE.CylinderGeometry(0.14, 0.2, 6.5, 5), bark.clone(), palms, p => { dummy.position.set(p.x, 3.25 * p.s, p.z); dummy.rotation.set(0.05, 0, 0.04); dummy.scale.setScalar(p.s); }, true);
-  instanced(new THREE.ConeGeometry(2.3, 1.1, 7), new THREE.MeshStandardMaterial({ color: 0x3f7a32, roughness: 0.9, flatShading: true }), palms,
+  instanced(new THREE.ConeGeometry(2.3, 1.1, 7), swaying(new THREE.MeshStandardMaterial({ color: 0x3f7a32, roughness: 0.9, flatShading: true }), 0.14), palms,
     p => { dummy.position.set(p.x, 6.4 * p.s, p.z); dummy.rotation.set(Math.PI, p.z % 3, 0); dummy.scale.setScalar(p.s); }, true);
-  instanced(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshStandardMaterial({ color: 0x6b7a3a, roughness: 0.95, flatShading: true }), bushes,
+  instanced(new THREE.IcosahedronGeometry(0.9, 0), swaying(new THREE.MeshStandardMaterial({ color: 0x6b7a3a, roughness: 0.95, flatShading: true }), 0.05), bushes,
     p => { dummy.position.set(p.x, 0.45 * p.s, p.z); dummy.rotation.set(0, p.x % 3, 0); dummy.scale.set(1.4 * p.s, 0.75 * p.s, 1.2 * p.s); }, false);
   return group;
 }

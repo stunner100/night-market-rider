@@ -6,12 +6,14 @@ import { makeOrder, priceOrder, saveBoard, separateOrderFromRider, useGame, pers
 import { GameAudio } from "./audio";
 import { textTexture, disposeTextureCache } from "./textures";
 import { Sky } from "./sky";
-import { GlowField, ParticleField, SpeedStreaks, type PuffOptions } from "./fx";
+import { DustMotes, GlowField, ParticleField, SpeedStreaks, type PuffOptions } from "./fx";
+import { setWindTime } from "./world/land-cover";
 import { addSilhouette, InkPass } from "./post";
 import { setRoadWetness } from "./world/road-renderer";
 import { orderDetails, prepSeconds } from "./delivery/order-details";
 import { settleDelivery } from "./delivery/settlement";
 import { applyOrderKind, ORDER_KINDS } from "./delivery/order-kind";
+import { addStunt, crashCombo, newCombo, tickCombo, type StuntKind } from "./combo";
 import { ALL_GOALS_BONUS, applyGoalEvent, GOAL_DEFS, goalLabel, pickGoals, type GoalEvent } from "./shift-goals";
 import { Corridor, nextEventDelay, RoadEvents, type CorridorPoint, type RoadEventOutcome } from "./world/road-events";
 import { DestinationBeacon, RouteRibbon } from "./world/route-ribbon";
@@ -81,6 +83,8 @@ function flashScreen(kind: "hit" | "gold" | "paid") {
 }
 /** The Night Market shift starts at golden hour; night falls about two minutes in. */
 const SHIFT_START_HOUR = 17.5;
+/** Shifts end at 02:00 (about 8.5 real minutes); an order in progress can be finished first. */
+const SHIFT_END_SECONDS = (26 - SHIFT_START_HOUR) * 60;
 // Pre-allocated Vector3 for exhaust position
 const _exhaustPos = new THREE.Vector3();
 // Pre-allocated Vector3 for menu camera target
@@ -117,6 +121,13 @@ export class Engine {
   private roadWet = 0;
   /** Riding distance and slipstream time are batched and flushed with the HUD. */
   private goalRide = 0;
+  private combo = newCombo();
+  private airTime = 0;
+  private bestCombo = 0;
+  private lastOrderWarned = false;
+  private respected = 0;
+  private disrespected = 0;
+  private shiftStart = { earnings: 0, deliveries: 0, xp: 0, rating: 5, distance: 0 };
   private roadEvents!: RoadEvents;
   private roadEventAt = 60;
   private honkedFrame = false;
@@ -126,6 +137,7 @@ export class Engine {
   private bandStep = 0;
   private goalSlip = 0;
   private streaks = new SpeedStreaks();
+  private motes = new DustMotes();
   chevrons: THREE.Mesh[] = [];
   private routeRibbon = new RouteRibbon();
   /** Fixed pool (vendor, customer, base): a constant light count keeps shaders stable. */
@@ -261,7 +273,8 @@ export class Engine {
 
   dispatchDelivery(event: DeliveryEvent) {
     const s = useGame.getState();
-    if (s.paused) return;
+    // Once the shift is over, the summary owns the screen: no stage may flip the phase back.
+    if (s.paused || s.phase === 'gameover') return;
     const before = s.delivery;
     const next = reduceDelivery(before, event, this.deliveryContext());
     s.set({ delivery: next, phase: deliveryPhase(next.stage) });
@@ -641,7 +654,7 @@ export class Engine {
     this.puffs = new ParticleField(this.isMobile ? 120 : 260);
     this.sparkField = new ParticleField(90, true, 1.1);
     this.scene.add(this.routeRibbon.mesh, this.beacon.group, ...this.shopLights,
-      this.puffs.points, this.sparkField.points, this.glows.points, this.streaks.lines);
+      this.puffs.points, this.sparkField.points, this.glows.points, this.streaks.lines, this.motes.points);
     // nav chevrons
     const geo = new THREE.ConeGeometry(0.55, 1.1, 4);
     for (let i = 0; i < 6; i++) {
@@ -744,7 +757,7 @@ export class Engine {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     const px = h * this.renderer.getPixelRatio();
-    this.puffs?.setViewport(px); this.sparkField?.setViewport(px); this.glows.setViewport(px);
+    this.puffs?.setViewport(px); this.sparkField?.setViewport(px); this.glows.setViewport(px); this.motes.setViewport(px);
     this.ink?.setSize(w * this.renderer.getPixelRatio(), px);
   };
 
@@ -861,6 +874,12 @@ export class Engine {
 
   startRun() {
     const s = useGame.getState();
+    this.shiftSeconds = 0;
+    this.lastOrderWarned = false;
+    this.combo = newCombo(); this.bestCombo = 0; this.airTime = 0;
+    this.respected = 0; this.disrespected = 0;
+    this.shiftStart = { earnings: s.earnings, deliveries: s.deliveries, xp: s.xp, rating: s.rating, distance: s.distanceRidden };
+    s.set({ combo: null, shiftSummary: null });
     s.set({ delivery: initialDelivery(), mounted: true, phoneOpen: false,
       phase: 'offline', order: null, orderIndex: Math.max(s.orderIndex,s.deliveries,this.paidOrderId??0),
       streak: 0, strikes: 0, timeLeft: 0, lastDelivery: null, banner: null, fuel: 100, paused: false });
@@ -1251,6 +1270,7 @@ export class Engine {
     if (this.crashCool > 0) return;
     this.crashCool = 1.6;
     this.goalEvent({ type: 'crash' });
+    this.dropCombo();
     flashScreen("hit");
     this.raise('crash', { crashes: ++this.crashCount });
     this.speed = -Math.min(3, Math.abs(this.speed) * 0.15); // slight bounce-back
@@ -1326,12 +1346,75 @@ export class Engine {
     // Time progression is independent of deliveries.
   }
 
-  gameOver() {
+  gameOver() { this.endShift("strikes"); }
+
+  /** Close the shift and show the summary screen. */
+  endShift(reason: "strikes" | "timeUp") {
     const s = useGame.getState();
-    s.set({ phase: "gameover" });
-    this.audio.fail();
+    if (s.phase === "gameover") return;
+    const goals = s.shiftGoals;
+    const summary = {
+      reason,
+      earned: Math.round((s.earnings - this.shiftStart.earnings) * 100) / 100,
+      deliveries: s.deliveries - this.shiftStart.deliveries,
+      xp: s.xp - this.shiftStart.xp,
+      goalsDone: goals.filter(g => g.done).length,
+      goalsTotal: goals.length,
+      bestCombo: this.bestCombo,
+      bestStreak: s.bestStreak,
+      rating: s.rating,
+      ratingChange: Math.round((s.rating - this.shiftStart.rating) * 100) / 100,
+      km: Math.round((s.distanceRidden - this.shiftStart.distance) / 100) / 10,
+      respected: this.respected,
+      disrespected: this.disrespected,
+    };
+    this.roadEvents.clear();
+    this.combo = newCombo();
+    s.set({ phase: "gameover", shiftSummary: summary, combo: null, banner: null, phoneOpen: false, incomingCall: null });
+    if (reason === "strikes") this.audio.fail(); else this.audio.deliver();
     this.world.setMarkers(null, null, "gameover");
     saveBoard(s.nickname || "Rider", s.score);
+    persistProgress();
+  }
+
+  /** At 02:00 the shift winds down: no new offers; an order in progress can still be finished. */
+  private checkShiftEnd() {
+    if (this.shiftSeconds < SHIFT_END_SECONDS) return;
+    const s = useGame.getState();
+    const idle = ['offline', 'waiting', 'offer'].includes(s.delivery.stage);
+    if (idle) { this.endShift("timeUp"); return; }
+    if (!this.lastOrderWarned) {
+      this.lastOrderWarned = true;
+      s.pushToast("🌙 Na 2 o'clock — finish this last order and go rest.");
+    }
+  }
+
+  /** Chain a stunt into the combo. */
+  private stunt(kind: StuntKind, quality = 1) {
+    this.combo = addStunt(this.combo, kind, quality);
+    this.bestCombo = Math.max(this.bestCombo, this.combo.count);
+    useGame.getState().set({ combo: { ...this.combo } });
+  }
+
+  private dropCombo() {
+    if (this.combo.count >= 2) useGame.getState().pushToast(`💥 ×${this.combo.count} combo lost!`);
+    this.combo = crashCombo();
+    useGame.getState().set({ combo: null });
+  }
+
+  private tickStunts(dt: number) {
+    if (this.combo.count === 0) return;
+    const s = useGame.getState();
+    const { combo, banked } = tickCombo(this.combo, dt, !this.carryingFood());
+    this.combo = combo;
+    if (!banked) return;
+    s.set({ combo: null, xp: s.xp + banked.xp, score: s.score + banked.xp,
+      ...(banked.cash ? { earnings: Math.round((s.earnings + banked.cash) * 100) / 100 } : {}) });
+    if (banked.count >= 2) {
+      s.pushToast(`🔥 ×${banked.count} combo! +${banked.xp} XP${banked.cash ? ` · style tips +GH₵${banked.cash.toFixed(2)}` : ""}`);
+      if (banked.cash) this.audio.coin();
+    }
+    this.goalEvent({ type: 'combo', count: banked.count });
   }
 
   /** Horn: "Agoo!" — traffic ahead pulls over; honking at a funeral is rude. */
@@ -1415,11 +1498,13 @@ export class Engine {
         s.pushToast(o.kind === 'funeral' ? "⚰️ Funeral procession ahead! Slow down and show respect." : "🚑 Ambulance behind! Move to the side — give way!");
         break;
       case 'respect':
+        this.respected++;
         s.pushToast(o.why);
         s.set({ xp: s.xp + 120, score: s.score + 120, rating: Math.min(5, Math.round((s.rating + 0.05) * 100) / 100) });
         this.audio.coin();
         break;
       case 'disrespect':
+        this.disrespected++;
         s.pushToast(o.why);
         s.set({ rating: Math.max(1, Math.round((s.rating - 0.15) * 100) / 100) });
         this.audio.fail();
@@ -1517,6 +1602,10 @@ export class Engine {
     }
     for (const g of this.roadEvents.sirenGlows()) this.glows.add(g.pos, g.color, 1.6, 0.9);
     this.glows.end();
+    const now = performance.now() / 1000;
+    setWindTime(now);
+    // Dry-season dust in the air by day; gone after dark and in rain.
+    this.motes.update(now, Math.max(0, 1 - this.nightF * 1.4) * (1 - this.rain.intensity), this.camera);
     const kmh = Math.abs(this.speed) * 3.6;
     const rush = s.mounted ? Math.min(1, Math.max(0, (kmh - 65) / 45) * 0.8 + (this.boostOn ? 0.5 : 0)) : 0;
     this.streaks.update(dt, rush, Math.abs(this.speed), this.camera);
@@ -1623,6 +1712,7 @@ export class Engine {
     const drifted = stepDrift(this.feel, { drift: !!this.input.drift && !onFoot && canDrive, steer: this.steerSmooth, speed: this.speed }, dt);
     this.feel = drifted.feel;
     if (driftBefore > 0.3 && this.feel.drift === 0) this.goalEvent({ type: 'drift', seconds: driftBefore });
+    if (driftBefore > 0.6 && this.feel.drift === 0) this.stunt('drift', driftBefore);
     const drifting = this.feel.drift > 0;
     if (drifting) {
       this.speed = Math.max(DRIFT.minSpeed * 0.8, this.speed - DRIFT.decel * dt);
@@ -1675,7 +1765,10 @@ export class Engine {
     if (this.py > 0 || this.vy !== 0) {
       this.vy -= 22 * dt;
       this.py += this.vy * dt;
+      this.airTime += dt;
       if (this.py <= 0) {
+        if (this.airTime > 0.35 && s.mounted) this.stunt('jump', this.airTime * 2);
+        this.airTime = 0;
         if (this.vy < -5) this.spill(Math.min(10, -this.vy), 'Hard landing');
         this.py = 0; this.vy = 0; this.bump = 0.5; this.shake = Math.max(this.shake, 0.4);
       }
@@ -1688,7 +1781,7 @@ export class Engine {
       { x: c.mesh.position.x, z: c.mesh.position.z, yaw: c.mesh.rotation.y }));
     const slipBefore = this.feel.slip;
     this.feel = stepSlip(this.feel, tucked, dt);
-    if (slipBefore < 0.95 && this.feel.slip >= 0.95) this.audio.noise(0.35, 0.08);
+    if (slipBefore < 0.95 && this.feel.slip >= 0.95) { this.audio.noise(0.35, 0.08); this.stunt('slip'); }
     if (Math.abs(this.feel.slip - s.slipstream) > 0.1 || (this.feel.slip === 0) !== (s.slipstream === 0) || drifting !== s.drifting)
       s.set({ slipstream: Math.round(this.feel.slip * 10) / 10, drifting });
     const walkers = osm ? osm.walkerBodies() : this.world.peds;
@@ -1760,6 +1853,7 @@ export class Engine {
           s.set({ score: s.score + 100, xp: s.xp + 25 });
           s.pushToast(pick(STREET.nearMiss));
           this.goalEvent({ type: 'nearMiss' });
+          this.stunt('nearMiss');
           this.audio.coin();
         }
       }
@@ -1784,6 +1878,7 @@ export class Engine {
           this.shake = 1.0;
           this.orderCollisions++;
           this.goalEvent({ type: 'crash' });
+          this.dropCombo();
           this.spill(12);
           s.set({ score: Math.max(0, s.score - 50) });
           s.pushToast(pick(p.goat ? STREET.goat : STREET.pedestrian));
@@ -1828,6 +1923,8 @@ export class Engine {
     }
 
     // Mission transitions are centralized and independently testable.
+    this.checkShiftEnd();
+    if (useGame.getState().phase === 'gameover') return;
     if (s.delivery.stage === 'waiting' && s.delivery.remaining <= 0) this.offerNext();
     else this.dispatchDelivery({ type: 'tick', dt });
     const current = useGame.getState();
@@ -1884,6 +1981,7 @@ export class Engine {
     } else this.updateNav(o, phase);
     this.updateCamera(dt, false);
     this.updateRoadEvents(dt, riding);
+    if (riding) this.tickStunts(dt);
     this.updateFx(dt);
     this.applySky(this.nightF);
     this.updateCity(dt, t);
@@ -1896,6 +1994,7 @@ export class Engine {
       this.hudTimer = 0.12;
       if (this.goalRide > 0) { this.goalEvent({ type: 'ride', metres: this.goalRide }); this.goalRide = 0; }
       if (this.goalSlip > 0) { this.goalEvent({ type: 'slip', seconds: this.goalSlip }); this.goalSlip = 0; }
+      if (this.combo.count > 0) s.set({ combo: { ...this.combo } });
       this.updateCalls();
       if (s.hour >= 19) this.raise('night');
       if (o && s.timeLeft <= 0 && this.lateOrderId !== o.id && ['rideCustomer', 'contact'].includes(s.delivery.stage)) {
@@ -2241,7 +2340,7 @@ export class Engine {
     this.routeRibbon.dispose();
     this.beacon.dispose();
     disposeTextureCache();
-    for (const fx of [this.puffs, this.sparkField, this.glows, this.streaks]) fx.dispose();
+    for (const fx of [this.puffs, this.sparkField, this.glows, this.streaks, this.motes]) fx.dispose();
     this.ink?.dispose();
     this.riderGhost?.dispose();
     this.footGhost?.dispose();

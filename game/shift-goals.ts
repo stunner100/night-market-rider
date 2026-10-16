@@ -7,7 +7,7 @@ import type { OrderKind } from "./delivery/order-kind";
 
 export type GoalId =
   | "deliveries" | "sharp" | "hotFood" | "twists" | "streak"
-  | "nearMiss" | "drift" | "slip" | "clean"
+  | "nearMiss" | "drift" | "slip" | "clean" | "combo"
   | "exactChange";
 
 export type GoalGroup = "delivery" | "riding" | "skill";
@@ -35,6 +35,7 @@ export const GOAL_DEFS: Record<GoalId, GoalDef> = {
   nearMiss: { id: "nearMiss", group: "riding", targets: [4, 6], mode: "count", label: n => `Pull off ${n} close shaves`, hint: "Skim past traffic above 58 km/h", reward: 8 },
   drift: { id: "drift", group: "riding", targets: [2, 3], mode: "best", label: n => `Drift ${n} s in one go`, hint: "Hold Shift and steer hard through a bend", reward: 9, unit: "s" },
   slip: { id: "slip", group: "riding", targets: [12, 20], mode: "count", label: n => `Ride ${n} s in slipstream`, hint: "Tuck in 3–16 m behind a car or trotro", reward: 8, unit: "s" },
+  combo: { id: "combo", group: "riding", targets: [3, 4], mode: "best", label: n => `Build a ×${n} stunt combo`, hint: "Chain close shaves, drifts, jumps and slipstream", reward: 10 },
   clean: { id: "clean", group: "skill", targets: [2, 3], mode: "best", label: n => `Ride ${n} km without a crash`, hint: "Any crash restarts the count", reward: 10, unit: "km" },
   exactChange: { id: "exactChange", group: "skill", targets: [1, 2], mode: "count", label: n => `Give exact change ${n}×`, hint: "Cash orders: count the change well", reward: 7 },
 };
@@ -56,6 +57,7 @@ export type GoalEvent =
   | { type: "drift"; seconds: number }
   | { type: "slip"; seconds: number }
   | { type: "ride"; metres: number }
+  | { type: "combo"; count: number }
   | { type: "crash" };
 
 /** Small deterministic PRNG so a seed always gives the same shift. */
@@ -94,6 +96,7 @@ function amount(id: GoalId, e: GoalEvent): { add?: number; best?: number } | nul
     case "nearMiss": return e.type === "nearMiss" ? { add: 1 } : null;
     case "drift": return e.type === "drift" ? { best: e.seconds } : null;
     case "slip": return e.type === "slip" ? { add: e.seconds } : null;
+    case "combo": return e.type === "combo" ? { best: e.count } : null;
     case "clean": return null; // handled with its running counter below
   }
 }

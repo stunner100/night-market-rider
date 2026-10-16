@@ -13,6 +13,7 @@ import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar
 import { customerDetails } from "@/game/delivery/customer";
 import { ORDER_KINDS } from "@/game/delivery/order-kind";
 import { ShiftGoals, ShiftGoalsList } from "./ShiftGoals";
+import { ComboMeter, ShiftSummary } from "./ShiftSummary";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
 
@@ -729,6 +730,7 @@ export default function UI({
             </section>
           )}
           <ShiftGoals />
+          <ComboMeter />
           <PickupTicket />
           <CashPayment />
           <CheckpointPanel />
@@ -764,6 +766,7 @@ export default function UI({
       )}
       {s.onboarding && s.phase === "menu" && <Onboarding />}
       {s.garageOpen && <Garage />}
+      <ShiftSummary />
       {s.paused && (
         <div className="modal-shade">
           <section className="dialog">
