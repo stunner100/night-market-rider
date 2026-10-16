@@ -158,13 +158,15 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
     this.wanted=wanted;
     const jobs: Promise<void>[] = [];
 
-    for (let dx = -radius; dx <= radius; dx++) {
-      for (let dz = -radius; dz <= radius; dz++) {
-        const key = chunkKey(center.cx + dx, center.cz + dz);
-        if (!manifest.chunks.some(c => c.key === key)) continue;
-        wanted.add(key);
-        if (!this.loaded.has(key)) jobs.push(this.loadChunk(key));
-      }
+    // Nearest first: builds run one at a time, so the rider's surroundings fill in before the edges.
+    const offsets: [number, number][] = [];
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) offsets.push([dx, dz]);
+    offsets.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]));
+    for (const [dx, dz] of offsets) {
+      const key = chunkKey(center.cx + dx, center.cz + dz);
+      if (!manifest.chunks.some(c => c.key === key)) continue;
+      wanted.add(key);
+      if (!this.loaded.has(key)) jobs.push(this.loadChunk(key, wait));
     }
 
     for (const [key, chunk] of Array.from(this.loaded.entries())) {
@@ -242,7 +244,16 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
     return Array.from(this.loaded.values()).filter(c=>Math.abs((c.data.cx+.5)*size-x)<size/2+20&&Math.abs((c.data.cz+.5)*size-z)<size/2+20).map(c=>c.group.getObjectByName('osm-buildings')!).filter(Boolean);
   }
 
-  private loadChunk(key: string): Promise<void> {
+  /** Serialises chunk builds so several chunks never land in the same frame. */
+  private buildQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Fetch then build a chunk. While riding, each build step (5–8 ms at most)
+   * gets its own frame and only one chunk builds at a time; previously a
+   * boundary crossing built ~5 chunks at once (50–90 ms hitch). `urgent`
+   * (the loading screen) skips the frame yields.
+   */
+  private loadChunk(key: string, urgent = false): Promise<void> {
     const existing = this.loading.get(key);
     if (existing) return existing;
     const job = (async () => {
@@ -250,21 +261,9 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
         const response = await fetch(this.file(`chunks/${key}.json`), { cache: "force-cache" });
         if (!response.ok || this.destroyed) return;
         const data = await response.json() as WorldChunk;
-        if (this.loaded.has(key) || this.destroyed || !this.wanted.has(key)) return;
-        const group = new THREE.Group();
-        group.name = `osm-chunk-${key}`;
-        group.add(buildRoadGroup(data.roads, this.mobile));
-        group.add(buildBuildingGroup(data.buildings, this.mobile));
-        group.add(buildStreetDressingGroup(data, this.mobile));
-        group.add(buildPeopleGroup(data, this.mobile));
-        group.add(buildVegetationGroup(data, this.cover, this.manifest?.chunkSize ?? 256, this.mobile));
-        trimShadowCasters(group);
-        this.group.add(group);
-        this.loaded.set(key, { data, group });
-        this.roadIndex.set(key, data.roads);
-        this.absorbPois(data.pois);
-        this.ready = true;
-        this.group.visible = true;
+        const build = this.buildQueue.then(() => this.buildChunk(key, data, urgent));
+        this.buildQueue = build.catch(() => undefined);
+        await build;
       } catch (error) {
         console.warn(`Failed to load Accra chunk ${key}`, error);
       } finally {
@@ -273,6 +272,34 @@ diffuseColor.rgb *= mix(0.88, 1.06, gs);`);
     })();
     this.loading.set(key, job);
     return job;
+  }
+
+  private async buildChunk(key: string, data: WorldChunk, urgent: boolean): Promise<void> {
+    const stale = () => this.loaded.has(key) || this.destroyed || !this.wanted.has(key);
+    if (stale()) return;
+    const group = new THREE.Group();
+    group.name = `osm-chunk-${key}`;
+    const steps: (() => THREE.Object3D)[] = [
+      () => buildRoadGroup(data.roads, this.mobile),
+      () => buildBuildingGroup(data.buildings, this.mobile),
+      () => buildStreetDressingGroup(data, this.mobile),
+      () => buildPeopleGroup(data, this.mobile),
+      () => buildVegetationGroup(data, this.cover, this.manifest?.chunkSize ?? 256, this.mobile),
+    ];
+    for (const step of steps) {
+      group.add(step());
+      if (urgent) continue;
+      await nextFrame();
+      // The rider moved on mid-build: throw the partial chunk away.
+      if (stale()) { this.disposeChunk({ data, group }); return; }
+    }
+    trimShadowCasters(group);
+    this.group.add(group);
+    this.loaded.set(key, { data, group });
+    this.roadIndex.set(key, data.roads);
+    this.absorbPois(data.pois);
+    this.ready = true;
+    this.group.visible = true;
   }
 
   isOnRoad(x: number, z: number, margin = 0.8): boolean {
@@ -449,5 +476,15 @@ function trimShadowCasters(root: THREE.Object3D) {
     const scale = Math.max(object.scale.x, object.scale.y, object.scale.z);
     // Instanced batches (crowds, trees) stay; they are one draw call each.
     if (!(object instanceof THREE.InstancedMesh) && (geometry.boundingSphere?.radius ?? 0) * scale < 0.6) object.castShadow = false;
+  });
+}
+
+/** Next animation frame, with a timeout so hidden tabs (no rAF) still progress. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    requestAnimationFrame(finish);
+    setTimeout(finish, 50);
   });
 }
