@@ -1,5 +1,6 @@
 import { initialDelivery, type DeliveryState } from "./delivery/machine";
 import { create } from "zustand";
+import type { OrderKind } from "./delivery/order-kind";
 import { latLonToWorld } from "./world/coordinates";
 import type { ContactId } from "./calls";
 import type { CheckpointState } from "./checkpoint";
@@ -42,6 +43,8 @@ export interface Order {
   address?: string;
   /** Short place for the meeting: "the blue gate (H/No. 14)", "the porter's lodge". */
   meeting?: string;
+  /** Rush / soup / party twist on the order; absent means a normal order. */
+  kind?: OrderKind;
 }
 
 interface Toast { id: number; text: string; }

@@ -663,6 +663,40 @@ button:focus-visible {
 .payout-lines .is-negative dd {
   color: #ff8a5c;
 }
+.order-kind {
+  display: grid;
+  gap: 3px;
+  margin: 10px 0 2px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border-left: 3px solid currentColor;
+  background: #ffffff0f;
+  font-size: 12px;
+}
+.order-kind b {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.order-kind span {
+  color: #d8e0da;
+}
+.kind-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  vertical-align: 1px;
+  color: #111;
+}
+.order-kind.kind-rush { color: #ffb84d; }
+.order-kind.kind-soup { color: #74c0fc; }
+.order-kind.kind-party { color: #f783ac; }
+.kind-chip.kind-rush { background: #ffb84d; }
+.kind-chip.kind-soup { background: #74c0fc; }
+.kind-chip.kind-party { background: #f783ac; }
 .food-meter {
   position: relative;
   display: flex;

@@ -11,6 +11,7 @@ import { ARCHETYPES } from "@/game/archetypes";
 import { LOADING_LINES } from "@/game/voice";
 import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar } from "./DeliveryPanels";
 import { customerDetails } from "@/game/delivery/customer";
+import { ORDER_KINDS } from "@/game/delivery/order-kind";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
 
@@ -506,6 +507,11 @@ export default function UI({
                 )
                   ? s.order.vendor
                   : `${s.order.customer} · ${s.order.dropoff}`}
+                {s.order.kind && s.order.kind !== "standard" && (
+                  <span className={`kind-chip kind-${s.order.kind}`}>
+                    {ORDER_KINDS[s.order.kind].emoji} {ORDER_KINDS[s.order.kind].label}
+                  </span>
+                )}
               </p>
             )}
             {s.order?.address && ["returnBike", "rideCustomer", "contact", "calling", "findCustomer"].includes(stage) && (
@@ -667,6 +673,14 @@ export default function UI({
               <p className="eyebrow">NEW ORDER DEY!</p>
               <h2>{s.order.vendor}</h2>
               <p>{s.order.food}</p>
+              {s.order.kind && s.order.kind !== "standard" && (
+                <div className={`order-kind kind-${s.order.kind}`}>
+                  <b>
+                    {ORDER_KINDS[s.order.kind].emoji} {ORDER_KINDS[s.order.kind].label.toUpperCase()}
+                  </b>
+                  <span>{ORDER_KINDS[s.order.kind].blurb}</span>
+                </div>
+              )}
               <div className="offer-route">
                 <span>01 · TAKE FROM</span>
                 <b>{s.order.vendor}{s.order.vendorSite?.road ? ` · ${s.order.vendorSite.road}` : " · Legon corridor"}</b>

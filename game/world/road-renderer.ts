@@ -25,14 +25,39 @@ const PAVED = new Set([
 const MARKED = new Set(["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified"]);
 const CURBED = new Set(["primary", "secondary", "tertiary", "unclassified", "residential", "service"]);
 
+/** Road surfaces that darken and turn glossy in rain (uniform changes only, no recompiles). */
+const wettable = new Map<THREE.MeshStandardMaterial, { roughness: number; color: THREE.Color }>();
+let wetness = 0;
+
+function applyWetness(material: THREE.MeshStandardMaterial, base: { roughness: number; color: THREE.Color }) {
+  // Wet asphalt reads darker with tighter highlights, not brighter.
+  material.roughness = base.roughness * (1 - 0.42 * wetness);
+  material.color.copy(base.color).multiplyScalar(1 - 0.45 * wetness);
+  material.envMapIntensity = 1 + 0.35 * wetness;
+}
+
+/** 0 = dry, 1 = soaked. Cheap enough to call every frame; skips tiny changes. */
+export function setRoadWetness(value: number): void {
+  const next = Math.round(Math.max(0, Math.min(1, value)) * 50) / 50;
+  if (next === wetness) return;
+  wetness = next;
+  wettable.forEach((base, material) => applyWetness(material, base));
+}
+
 function roadMaterial(highway: string): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color: PAVED.has(highway) ? 0xb6b4ae : ROAD_COLORS[highway] ?? 0x41454a,
     map: PAVED.has(highway) ? asphaltTexture() : null,
     roughness: highway === "track" ? 0.98 : 0.88,
     metalness: 0.015,
     side: THREE.DoubleSide,
   });
+  if (PAVED.has(highway)) {
+    const base = { roughness: material.roughness, color: material.color.clone() };
+    wettable.set(material, base);
+    applyWetness(material, base);
+  }
+  return material;
 }
 
 function segmentGeometry(
@@ -233,5 +258,8 @@ export function disposeRoadGroup(group: THREE.Group): void {
     if (Array.isArray(obj.material)) obj.material.forEach(m => materials.add(m));
     else materials.add(obj.material);
   });
-  Array.from(materials).forEach(material => material.dispose());
+  Array.from(materials).forEach(material => {
+    if (material instanceof THREE.MeshStandardMaterial) wettable.delete(material);
+    material.dispose();
+  });
 }

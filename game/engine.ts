@@ -6,8 +6,11 @@ import { makeOrder, priceOrder, saveBoard, separateOrderFromRider, useGame, pers
 import { GameAudio } from "./audio";
 import { textTexture, disposeTextureCache } from "./textures";
 import { Sky } from "./sky";
+import { GlowField, ParticleField, SpeedStreaks, type PuffOptions } from "./fx";
+import { setRoadWetness } from "./world/road-renderer";
 import { orderDetails, prepSeconds } from "./delivery/order-details";
 import { settleDelivery } from "./delivery/settlement";
+import { applyOrderKind, ORDER_KINDS } from "./delivery/order-kind";
 import { DestinationBeacon, RouteRibbon } from "./world/route-ribbon";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, buildHelmet, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
@@ -34,15 +37,13 @@ import { addressFor, gateFor, pickSites } from "./world/delivery-sites";
 
 export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; boost: boolean; drift?: boolean; }
 
-interface Particle { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
-// Shared particle geometry — one sphere reused for all particles
-const particleGeo = new THREE.SphereGeometry(0.15, 6, 5);
 
 // Pre-allocated Color objects for applySky
 const _sunDir = new THREE.Vector3();
+const _glowPos = new THREE.Vector3();
 /** Half width / half length of each vehicle body in metres. */
 const VEHICLE_FOOTPRINT: Record<string, [number, number]> = {
   car: [0.95, 2.15], taxi: [0.95, 2.15], trotro: [1.2, 2.95], bus: [1.25, 3.9], okada: [0.4, 0.95],
@@ -97,7 +98,12 @@ export class Engine {
   private customerBag: THREE.Object3D | null = null;
   targetLabel: THREE.Sprite | null = null;
   sky: Sky | null = null;
-  particles: Particle[] = [];
+  /** Soft dust/exhaust/steam, additive sparks, lamp halos and speed streaks — one draw call each. */
+  private puffs!: ParticleField;
+  private sparkField!: ParticleField;
+  private glows = new GlowField(180);
+  private roadWet = 0;
+  private streaks = new SpeedStreaks();
   chevrons: THREE.Mesh[] = [];
   private routeRibbon = new RouteRibbon();
   /** Fixed pool (vendor, customer, base): a constant light count keeps shaders stable. */
@@ -177,7 +183,8 @@ export class Engine {
     if (!this.carryingFood()) return;
     const s = useGame.getState();
     const before = s.foodCondition;
-    const after = Math.max(0, before - amount * perksFor(s.archetype).spill * bikeFor(s.bike).care);
+    const kindSpill = ORDER_KINDS[s.order?.kind ?? 'standard'].spillMult;
+    const after = Math.max(0, before - amount * kindSpill * perksFor(s.archetype).spill * bikeFor(s.bike).care);
     if (after === before) return;
     s.set({ foodCondition: after });
     const now = performance.now();
@@ -379,6 +386,9 @@ export class Engine {
     const wet = this.rain.intensity;
     this.rainStreaks.update(dt, wet, this.camera.position);
     this.audio.setRain(wet);
+    // Roads stay wet a while after the shower passes.
+    this.roadWet += ((wet > 0.05 ? Math.min(1, wet * 1.4) : 0) - this.roadWet) * Math.min(1, dt * (wet > this.roadWet ? 0.5 : 0.04));
+    setRoadWetness(this.roadWet);
     if (rainEvent === 'start') { s.set({ raining: true }); s.pushToast("🌧️ Rain dey come! Ride small small."); this.raise('rain'); }
     if (rainEvent === 'stop') { s.set({ raining: false }); s.pushToast("🌤️ Rain don stop."); }
     if (wet > 0) {
@@ -599,7 +609,10 @@ export class Engine {
     restoreProgress();
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
-    this.scene.add(this.routeRibbon.mesh, this.beacon.group, ...this.shopLights);
+    this.puffs = new ParticleField(this.isMobile ? 120 : 260);
+    this.sparkField = new ParticleField(90, true, 1.1);
+    this.scene.add(this.routeRibbon.mesh, this.beacon.group, ...this.shopLights,
+      this.puffs.points, this.sparkField.points, this.glows.points, this.streaks.lines);
     // nav chevrons
     const geo = new THREE.ConeGeometry(0.55, 1.1, 4);
     for (let i = 0; i < 6; i++) {
@@ -698,6 +711,8 @@ export class Engine {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    const px = h * this.renderer.getPixelRatio();
+    this.puffs?.setViewport(px); this.sparkField?.setViewport(px); this.glows.setViewport(px);
   };
 
   private _onKeyDown = (e: KeyboardEvent) => {
@@ -858,6 +873,7 @@ export class Engine {
     }
     this._osmRouteTarget = "";
     this._osmRoute.length = 0;
+    order = applyOrderKind(order);
     s.set({ order, timeLeft: order.timeTotal, banner: null });
     this.dispatchDelivery({ type: 'offer' });
     navigator.vibrate?.([100, 60, 100]);
@@ -1019,7 +1035,7 @@ export class Engine {
       if (pot && this.steamAt <= 0 && place.position.distanceTo(this.rig.group.position) < 60) {
         this.steamAt = 0.35;
         pot.getWorldPosition(_steamPos);
-        this.spawnPuff(_steamPos.x, _steamPos.y + 0.35, _steamPos.z, 0xf1f3f5, 1, 0.25);
+        this.spawnPuff(_steamPos.x, _steamPos.y + 0.35, _steamPos.z, 0xf1f3f5, 1, 0.12, { size: 0.3, grow: 3, life: 1.8, rise: 0.7, alpha: 0.35 });
       }
     }
     for (const g of this.waitingRiders) {
@@ -1254,19 +1270,47 @@ export class Engine {
     saveBoard(s.nickname || "Rider", s.score);
   }
 
-  spawnPuff(x: number, y: number, z: number, color: number, n = 6, spread = 2) {
-    if (this.isMobile && this.particles.length > 60) return;
-    for (let i = 0; i < n; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false });
-      const m = new THREE.Mesh(particleGeo, mat);
-      const s = rand(0.08, 0.2) / 0.15;
-      m.scale.set(s, s, s);
-      m.position.set(x + rand(-0.4, 0.4), y, z + rand(-0.4, 0.4));
-      this.scene.add(m);
-      this.particles.push({ mesh: m, vx: rand(-spread, spread), vy: rand(1, 3), vz: rand(-spread, spread), life: 0, max: rand(0.4, 0.9) });
+  /** Lamp halos after dark or in rain, and air streaks at speed. */
+  private updateFx(dt: number) {
+    const s = useGame.getState();
+    const dark = Math.max(this.nightF, this.rain.intensity * 0.7);
+    this.glows.begin();
+    if (dark > 0.25 && this.osmPlay) {
+      for (const v of this.osmPlay.trafficBodies()) {
+        if (!v.mesh.visible || v.mesh.position.distanceTo(this.camera.position) > 140) continue;
+        let anchors = v.mesh.userData.glows as THREE.Object3D[] | undefined;
+        if (!anchors) {
+          const found: THREE.Object3D[] = [];
+          v.mesh.traverse(o => { if (o.name === 'glow-head' || o.name === 'glow-tail') found.push(o); });
+          v.mesh.userData.glows = anchors = found;
+        }
+        for (const a of anchors) {
+          a.getWorldPosition(_glowPos);
+          const head = a.name === 'glow-head';
+          this.glows.add(_glowPos, head ? 0xfff0c8 : 0xff2a1a, head ? 1.2 : 0.75, (head ? 0.5 : 0.42) * dark);
+        }
+      }
     }
+    if (s.mounted) {
+      // The rider's own tail flares when braking, day or night.
+      const braking = this.input.down && Math.abs(this.speed) > 1;
+      if (dark > 0.25 || braking) {
+        this.rig.brakeLight.getWorldPosition(_glowPos);
+        this.glows.add(_glowPos, 0xff2a1a, braking ? 0.9 : 0.6, braking ? 0.85 : 0.35 * dark);
+      }
+    }
+    this.glows.end();
+    const kmh = Math.abs(this.speed) * 3.6;
+    const rush = s.mounted ? Math.min(1, Math.max(0, (kmh - 65) / 45) * 0.8 + (this.boostOn ? 0.5 : 0)) : 0;
+    this.streaks.update(dt, rush, Math.abs(this.speed), this.camera);
   }
-  sparks(x: number, z: number) { this.spawnPuff(x, 1, z, 0xffd43b, 14, 5); }
+
+  spawnPuff(x: number, y: number, z: number, color: number, n = 6, spread = 2, opts?: PuffOptions) {
+    this.puffs.spawn(x, y, z, color, n, spread, opts);
+  }
+  sparks(x: number, z: number) {
+    this.sparkField.spawn(x, 0.9, z, 0xffc94a, 16, 5, { size: 0.14, grow: 0.5, life: 0.45, rise: 3.2, alpha: 1 });
+  }
 
   update(dt: number) {
     const s = useGame.getState();
@@ -1320,7 +1364,9 @@ export class Engine {
     // --- physics ---
     const orderDiff = Math.min(1, s.orderIndex / 10);
     const bike = bikeFor(s.bike);
-    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity) * perksFor(s.archetype).speed * bike.speed * (1 + SLIP.topSpeed * this.feel.slip);
+    // A party order's heavy box slows the bike while it's loaded.
+    const loadSpeed = this.carryingFood() ? ORDER_KINDS[s.order?.kind ?? 'standard'].speedMult : 1;
+    const maxSp = onFoot ? 3.4 : (26 + orderDiff * 2) * (1 - 0.18 * this.rain.intensity) * perksFor(s.archetype).speed * bike.speed * loadSpeed * (1 + SLIP.topSpeed * this.feel.slip);
     const boostMax = onFoot ? 5.5 : 37 * bike.speed;
     const wantBoost = this.input.boost && s.boost > 1 && this.input.up;
     this.boostOn = wantBoost && canDrive;
@@ -1591,26 +1637,15 @@ export class Engine {
     const offRoad = !this.onRoad(this.px, this.pz);
     if (s.mounted && Math.abs(this.speed) > 3 && (offRoad || this.boostOn) && this.dustTimer <= 0 && this.py === 0) {
       this.dustTimer = offRoad ? 0.06 : 0.12;
-      this.spawnPuff(this.px - Math.sin(this.heading) * 1.2, 0.3, this.pz - Math.cos(this.heading) * 1.2, this.onRoad(this.px, this.pz) ? 0xcccccc : 0xc2a06b, 1, 1);
+      this.spawnPuff(this.px - Math.sin(this.heading) * 1.2, 0.3, this.pz - Math.cos(this.heading) * 1.2, offRoad ? 0xc2a06b : 0xbdb8b0, 1, 1,
+        { size: 0.55, grow: 3.2, life: 1.1, rise: 0.6, alpha: offRoad ? 0.42 : 0.25 });
     }
     if (s.mounted && Math.abs(this.speed) > 4 && Math.random() < dt * 12) {
       this.rig.exhaust.getWorldPosition(_exhaustPos);
-      this.spawnPuff(_exhaustPos.x, _exhaustPos.y, _exhaustPos.z, 0x888888, 1, 0.5);
+      this.spawnPuff(_exhaustPos.x, _exhaustPos.y, _exhaustPos.z, 0x9a9a9a, 1, 0.35, { size: 0.18, grow: 4, life: 0.9, rise: 0.5, alpha: 0.3 });
     }
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.life += dt;
-      p.mesh.position.x += p.vx * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.z += p.vz * dt;
-      p.vx *= 1 - dt * 2; p.vy *= 1 - dt * 1.5; p.vz *= 1 - dt * 2;
-      p.mesh.scale.multiplyScalar(1 + dt * 1.6);
-      const k = p.life / p.max;
-      (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - k) * (1 - k);
-      if (p.life >= p.max) {
-        (p.mesh.material as THREE.MeshBasicMaterial).dispose();
-        this.scene.remove(p.mesh);
-        this.particles.splice(i, 1);
-      }
-    }
+    this.puffs.update(dt);
+    this.sparkField.update(dt);
 
     const t = performance.now() / 1000;
     this.tickOsm(dt, t);
@@ -1622,6 +1657,7 @@ export class Engine {
       this.updateNav({...makeOrder(0),pickupX:dest.x,pickupZ:dest.z},'toPickup');
     } else this.updateNav(o, phase);
     this.updateCamera(dt, false);
+    this.updateFx(dt);
     this.applySky(this.nightF);
     this.updateCity(dt, t);
     this.audio.setEngine(s.mounted ? Math.min(1, Math.abs(this.speed) / 37) : -1, this.boostOn);
@@ -1966,12 +2002,7 @@ export class Engine {
     this.routeRibbon.dispose();
     this.beacon.dispose();
     disposeTextureCache();
-    // dispose all particles
-    for (const p of this.particles) {
-      (p.mesh.material as THREE.MeshBasicMaterial).dispose();
-      this.scene.remove(p.mesh);
-    }
-    this.particles.length = 0;
+    for (const fx of [this.puffs, this.sparkField, this.glows, this.streaks]) fx.dispose();
     this.clearNPCs();
     if (this.targetLabel) {
       const mat = this.targetLabel.material as THREE.SpriteMaterial;

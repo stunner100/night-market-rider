@@ -39,7 +39,14 @@ function wheel(g: THREE.Group, x: number, z: number, radius: number, tire: THREE
 function lamps(g: THREE.Group, frontZ: number, rearZ: number, y: number, span: number) {
   const head = new THREE.MeshStandardMaterial({ color: 0xfff2bf, roughness: .15, emissive: 0xffd17a, emissiveIntensity: .45 });
   const tail = new THREE.MeshStandardMaterial({ color: 0x8f1111, roughness: .2, emissive: 0x550000, emissiveIntensity: .45 });
-  for (const x of [-span, span]) { g.add(box(.38, .17, .06, head, x, y, frontZ, .025)); g.add(box(.38, .17, .06, tail, x, y, rearZ, .025)); }
+  for (const x of [-span, span]) {
+    g.add(box(.38, .17, .06, head, x, y, frontZ, .025)); g.add(box(.38, .17, .06, tail, x, y, rearZ, .025));
+    glowAnchor(g, "glow-head", x, y, frontZ + .06); glowAnchor(g, "glow-tail", x, y, rearZ - .06);
+  }
+}
+/** Empty markers the night glow pass reads lamp positions from. */
+function glowAnchor(g: THREE.Group, name: string, x: number, y: number, z: number) {
+  const a = new THREE.Object3D(); a.name = name; a.position.set(x, y, z); g.add(a);
 }
 function brake(g: THREE.Group, z: number, y: number, w = 1.1) { const m = box(w, .12, .045, new THREE.MeshBasicMaterial({ color: 0x550000 }), 0, y, z, .02); m.name = "brake"; g.add(m); }
 
@@ -94,6 +101,7 @@ export function createOkadaMesh(index = 0): THREE.Group {
   const fork = box(.07, .72, .07, chrome, 0, .7, .66, .02); fork.rotation.x = -.35; g.add(fork, box(.78, .045, .045, chrome, 0, 1.08, .55, .02));
   g.add(box(.2, .16, .12, new THREE.MeshStandardMaterial({ color: 0xfff2bf, emissive: 0xffd17a, emissiveIntensity: .5 }), 0, .95, .72, .04));
   brake(g, -.7, .78, .16);
+  glowAnchor(g, "glow-head", 0, .95, .8); glowAnchor(g, "glow-tail", 0, .78, -.74);
   const rider = (z: number, y: number, top: THREE.Material, lean: number) => {
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(.17, .38, 3, 8), top); torso.position.set(0, y + .38, z); torso.rotation.x = lean; torso.castShadow = true;
     const head = new THREE.Mesh(new THREE.SphereGeometry(.13, 10, 8), skin); head.position.set(0, y + .8, z + lean * .4);
