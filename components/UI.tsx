@@ -12,6 +12,7 @@ import { LOADING_LINES } from "@/game/voice";
 import { CashPayment, CheckpointPanel, InteractionPrompt, PickupTicket, RadioBar } from "./DeliveryPanels";
 import { customerDetails } from "@/game/delivery/customer";
 import { ORDER_KINDS } from "@/game/delivery/order-kind";
+import { ShiftGoals, ShiftGoalsList } from "./ShiftGoals";
 import { deliveryObjective } from "@/game/delivery/machine";
 import { engineRef } from "./GameClient";
 
@@ -722,6 +723,7 @@ export default function UI({
               />
             </section>
           )}
+          <ShiftGoals />
           <PickupTicket />
           <CashPayment />
           <CheckpointPanel />
@@ -762,6 +764,7 @@ export default function UI({
           <section className="dialog">
             <p className="eyebrow">REST SMALL</p>
             <h2>Shift dey pause</h2>
+            <ShiftGoalsList />
             <button
               className="btn btn-primary"
               onClick={() => eng?.resumeGame()}

@@ -1,6 +1,7 @@
 import { initialDelivery, type DeliveryState } from "./delivery/machine";
 import { create } from "zustand";
 import type { OrderKind } from "./delivery/order-kind";
+import type { GoalState } from "./shift-goals";
 import { latLonToWorld } from "./world/coordinates";
 import type { ContactId } from "./calls";
 import type { CheckpointState } from "./checkpoint";
@@ -124,6 +125,8 @@ export interface GameState {
   /** Live ride feel for the HUD. */
   drifting: boolean;
   slipstream: number;
+  /** This shift's three goals; reset on every new shift. */
+  shiftGoals: GoalState[];
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -196,6 +199,7 @@ export const useGame = create<GameState>((set, get) => ({
   garagePreview: null,
   drifting: false,
   slipstream: 0,
+  shiftGoals: [],
   sound: true,
   nickname: "Rider",
   foodCondition: 100,

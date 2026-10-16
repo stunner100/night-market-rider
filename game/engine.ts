@@ -11,6 +11,7 @@ import { setRoadWetness } from "./world/road-renderer";
 import { orderDetails, prepSeconds } from "./delivery/order-details";
 import { settleDelivery } from "./delivery/settlement";
 import { applyOrderKind, ORDER_KINDS } from "./delivery/order-kind";
+import { ALL_GOALS_BONUS, applyGoalEvent, GOAL_DEFS, goalLabel, pickGoals, type GoalEvent } from "./shift-goals";
 import { DestinationBeacon, RouteRibbon } from "./world/route-ribbon";
 import { buildHumanoid, buildHandBag, animateIdle, animateWalk, animateWave, animateHandoff, animateReceive, buildHelmet, poseRider, SKIN_TONES, HumanoidRig, HairStyle } from "./characters";
 import { AccraWorldRuntime } from "./world/accra-runtime";
@@ -103,6 +104,9 @@ export class Engine {
   private sparkField!: ParticleField;
   private glows = new GlowField(180);
   private roadWet = 0;
+  /** Riding distance and slipstream time are batched and flushed with the HUD. */
+  private goalRide = 0;
+  private goalSlip = 0;
   private streaks = new SpeedStreaks();
   chevrons: THREE.Mesh[] = [];
   private routeRibbon = new RouteRibbon();
@@ -820,6 +824,8 @@ export class Engine {
     s.set({ raining: false, dumsor: false });
     s.set({ incomingCall: null });
     this.raise(s.tutorialDone ? 'shiftReturn' : 'shiftStart');
+    s.set({ shiftGoals: pickGoals((Math.random() * 2 ** 31) | 0) });
+    this.goalRide = 0; this.goalSlip = 0;
     this.px = 0; this.pz = -18; this.heading = Math.PI; this.speed = 0; this.camHeading = this.heading; this.steerSmooth = 0;
     if (this.osmActive) {
       const snapped = this.osmWorld.nearestRoadPoint(this.px, this.pz, 120);
@@ -1189,6 +1195,7 @@ export class Engine {
     const s = useGame.getState();
     if (this.crashCool > 0) return;
     this.crashCool = 1.6;
+    this.goalEvent({ type: 'crash' });
     flashScreen("hit");
     this.raise('crash', { crashes: ++this.crashCount });
     this.speed = -Math.min(3, Math.abs(this.speed) * 0.15); // slight bounce-back
@@ -1253,6 +1260,8 @@ export class Engine {
     persistProgress();
     this.raise('delivered', { payout: reward, earnings: useGame.getState().earnings, deliveries });
     if (noCrash && condition >= 95) this.raise('perfect');
+    this.goalEvent({ type: 'delivered', timeShare: o.timeTotal > 0 ? s.timeLeft / o.timeTotal : 0, condition, streak: newStreak,
+      kind: o.kind ?? 'standard', cash: details.payment === 'cash', changeError: d.changeError });
     if (newStreak === 3) this.raise('streak3');
     flashScreen(noCrash && condition >= 95 ? "gold" : "paid");
     if (noCrash && condition >= 95) s.pushToast(DELIVERY.perfect);
@@ -1268,6 +1277,30 @@ export class Engine {
     this.audio.fail();
     this.world.setMarkers(null, null, "gameover");
     saveBoard(s.nickname || "Rider", s.score);
+  }
+
+  /** Feed a shift-goal event; pays the bonus for any goal it completes. */
+  goalEvent(e: GoalEvent) {
+    const s = useGame.getState();
+    if (!s.shiftGoals.length || s.shiftGoals.every(g => g.done)) return;
+    const { goals, completed } = applyGoalEvent(s.shiftGoals, e);
+    const changed = goals.some((g, i) => g.progress !== s.shiftGoals[i].progress || g.current !== s.shiftGoals[i].current);
+    if (!changed) return;
+    let bonus = 0;
+    for (const g of completed) {
+      bonus += GOAL_DEFS[g.id].reward;
+      s.pushToast(`🎯 Goal done: ${goalLabel(g)} · +GH₵${GOAL_DEFS[g.id].reward}`);
+    }
+    const allDone = completed.length > 0 && goals.every(g => g.done);
+    if (allDone) {
+      bonus += ALL_GOALS_BONUS;
+      s.pushToast(`🏆 All shift goals done! Bonus +GH₵${ALL_GOALS_BONUS}`);
+    }
+    s.set({ shiftGoals: goals, ...(bonus ? { earnings: Math.round((s.earnings + bonus) * 100) / 100 } : {}) });
+    if (bonus) {
+      this.audio.deliver();
+      persistProgress();
+    }
   }
 
   /** Lamp halos after dark or in rain, and air streaks at speed. */
@@ -1402,8 +1435,10 @@ export class Engine {
     const steerRate = onFoot ? 14 : steerInput === 0 ? 7 : 4.5;
     this.steerSmooth += (steerInput - this.steerSmooth) * Math.min(1, steerRate * dt);
     // Drift: hold Shift (or DRIFT) while steering hard at speed — tighter turn, tail out, speed bleeds; a kick on release.
+    const driftBefore = this.feel.drift;
     const drifted = stepDrift(this.feel, { drift: !!this.input.drift && !onFoot && canDrive, steer: this.steerSmooth, speed: this.speed }, dt);
     this.feel = drifted.feel;
+    if (driftBefore > 0.3 && this.feel.drift === 0) this.goalEvent({ type: 'drift', seconds: driftBefore });
     const drifting = this.feel.drift > 0;
     if (drifting) {
       this.speed = Math.max(DRIFT.minSpeed * 0.8, this.speed - DRIFT.decel * dt);
@@ -1540,6 +1575,7 @@ export class Engine {
           this.nearCool = 2;
           s.set({ score: s.score + 100, xp: s.xp + 25 });
           s.pushToast(pick(STREET.nearMiss));
+          this.goalEvent({ type: 'nearMiss' });
           this.audio.coin();
         }
       }
@@ -1563,6 +1599,7 @@ export class Engine {
           this.speed = Math.max(3.5, this.speed * 0.6);
           this.shake = 1.0;
           this.orderCollisions++;
+          this.goalEvent({ type: 'crash' });
           this.spill(12);
           s.set({ score: Math.max(0, s.score - 50) });
           s.pushToast(pick(p.goat ? STREET.goat : STREET.pedestrian));
@@ -1612,7 +1649,12 @@ export class Engine {
     const current = useGame.getState();
     const o = current.order;
     if (o && !['offer', 'completed'].includes(current.delivery.stage)) current.set({ timeLeft: Math.max(0, o.timeTotal - current.delivery.elapsed) });
-    if (s.mounted) s.set({ distanceRidden: s.distanceRidden + Math.hypot(this.px - previousX, this.pz - previousZ) });
+    if (s.mounted) {
+      const step = Math.hypot(this.px - previousX, this.pz - previousZ);
+      s.set({ distanceRidden: s.distanceRidden + step });
+      if (step < 5) this.goalRide += step; // ignore teleports (respawn, remount)
+      if (this.feel.slip >= 0.95) this.goalSlip += dt;
+    }
     this.shiftSeconds += dt;
     const hour = (SHIFT_START_HOUR + this.shiftSeconds / 60) % 24;
     // Dusk starts at 16:00 so the 17:30 shift start sits in the golden-orange part of the sky.
@@ -1667,6 +1709,8 @@ export class Engine {
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 0.12;
+      if (this.goalRide > 0) { this.goalEvent({ type: 'ride', metres: this.goalRide }); this.goalRide = 0; }
+      if (this.goalSlip > 0) { this.goalEvent({ type: 'slip', seconds: this.goalSlip }); this.goalSlip = 0; }
       this.updateCalls();
       if (s.hour >= 19) this.raise('night');
       if (o && s.timeLeft <= 0 && this.lateOrderId !== o.id && ['rideCustomer', 'contact'].includes(s.delivery.stage)) {

@@ -697,6 +697,148 @@ button:focus-visible {
 .kind-chip.kind-rush { background: #ffb84d; }
 .kind-chip.kind-soup { background: #74c0fc; }
 .kind-chip.kind-party { background: #f783ac; }
+.shift-goals {
+  position: absolute;
+  right: 24px;
+  top: 145px;
+  width: 270px;
+  padding: 12px 14px;
+  border: 1px solid #ffffff1f;
+  border-radius: 10px;
+  background: #101d19e0;
+  color: #fff;
+  pointer-events: auto;
+}
+.shift-goals header,
+.goals-list .eyebrow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #bbc5bc;
+  margin-bottom: 8px;
+}
+.shift-goals header b {
+  color: var(--nm-yellow);
+}
+.shift-goals ul,
+.goals-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+.shift-goals li,
+.goals-list li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.shift-goals li > div,
+.goals-list li > div {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding-bottom: 5px;
+  min-width: 0;
+}
+.shift-goals li b,
+.goals-list li b {
+  font-weight: 600;
+  line-height: 1.25;
+}
+.goals-list li small {
+  color: #9aa69c;
+  font-size: 11px;
+}
+.shift-goals li i,
+.goals-list li i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--nm-yellow);
+  transition: width 0.3s ease;
+}
+.shift-goals li em,
+.goals-list li em {
+  font-style: normal;
+  font-size: 11px;
+  color: #dfe6df;
+  white-space: nowrap;
+}
+.goal-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #ffffff55;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 900;
+}
+li.is-done .goal-check {
+  background: #51cf66;
+  border-color: #51cf66;
+  color: #10201b;
+}
+li.is-done b {
+  color: #9aa69c;
+  text-decoration: line-through;
+}
+li.is-done em {
+  color: #51cf66;
+  font-weight: 700;
+}
+.goals-pill {
+  display: none;
+}
+.goals-list {
+  margin: 4px 0 16px;
+  text-align: left;
+}
+@media (max-width: 760px) {
+  .shift-goals {
+    right: 12px;
+    top: 168px;
+    width: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .goals-pill {
+    display: block;
+    margin-left: auto;
+    padding: 7px 11px;
+    border: 1px solid #ffffff2a;
+    border-radius: 999px;
+    background: #101d19e0;
+    color: #fff;
+    font: 700 12px/1 inherit;
+  }
+  .shift-goals header,
+  .shift-goals ul {
+    display: none;
+  }
+  .shift-goals.is-open {
+    left: 12px;
+    padding: 12px;
+    border: 1px solid #ffffff1f;
+    background: #101d19f2;
+    border-radius: 10px;
+    z-index: 8;
+  }
+  .shift-goals.is-open header {
+    display: flex;
+  }
+  .shift-goals.is-open ul {
+    display: grid;
+  }
+}
 .food-meter {
   position: relative;
   display: flex;
