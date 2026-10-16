@@ -839,6 +839,32 @@ li.is-done em {
     display: grid;
   }
 }
+.graphics-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #bbc5bc;
+}
+.graphics-toggle span {
+  margin-right: auto;
+}
+.graphics-toggle button {
+  padding: 7px 10px;
+  border: 1px solid #ffffff2a;
+  border-radius: 999px;
+  background: transparent;
+  color: #dfe6df;
+  font: 600 11px/1 inherit;
+  cursor: pointer;
+}
+.graphics-toggle button[aria-pressed="true"] {
+  background: var(--nm-yellow);
+  border-color: transparent;
+  color: #10201b;
+}
 .food-meter {
   position: relative;
   display: flex;

@@ -127,6 +127,8 @@ export interface GameState {
   slipstream: number;
   /** This shift's three goals; reset on every new shift. */
   shiftGoals: GoalState[];
+  /** Render quality: "high" adds ink outlines and a sharper render. */
+  graphics: "high" | "low";
   sound: boolean;
   nickname: string;
   /** 0–100 state of the food in the delivery box; drives tip and rating. */
@@ -200,6 +202,7 @@ export const useGame = create<GameState>((set, get) => ({
   drifting: false,
   slipstream: 0,
   shiftGoals: [],
+  graphics: "high",
   sound: true,
   nickname: "Rider",
   foodCondition: 100,

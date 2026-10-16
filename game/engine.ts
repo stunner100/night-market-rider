@@ -7,6 +7,7 @@ import { GameAudio } from "./audio";
 import { textTexture, disposeTextureCache } from "./textures";
 import { Sky } from "./sky";
 import { GlowField, ParticleField, SpeedStreaks, type PuffOptions } from "./fx";
+import { addSilhouette, InkPass } from "./post";
 import { setRoadWetness } from "./world/road-renderer";
 import { orderDetails, prepSeconds } from "./delivery/order-details";
 import { settleDelivery } from "./delivery/settlement";
@@ -45,6 +46,15 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 // Pre-allocated Color objects for applySky
 const _sunDir = new THREE.Vector3();
+export type Graphics = "high" | "low";
+const GRAPHICS_KEY = "nm_graphics";
+function readGraphics(mobile: boolean): Graphics {
+  try {
+    const saved = localStorage.getItem(GRAPHICS_KEY);
+    if (saved === "high" || saved === "low") return saved;
+  } catch { /* storage may be unavailable */ }
+  return mobile ? "low" : "high";
+}
 const _glowPos = new THREE.Vector3();
 /** Half width / half length of each vehicle body in metres. */
 const VEHICLE_FOOTPRINT: Record<string, [number, number]> = {
@@ -463,6 +473,7 @@ export class Engine {
   swapBike(id: BikeId) {
     const old = this.rig;
     const fresh = buildRider(id);
+    this.riderGhost?.dispose();
     fresh.group.position.copy(old.group.position);
     fresh.group.rotation.copy(old.group.rotation);
     fresh.group.visible = old.group.visible;
@@ -476,6 +487,7 @@ export class Engine {
     this._disposeGroup(old.group);
     this.scene.add(fresh.group);
     this.rig = fresh;
+    this.riderGhost = addSilhouette(fresh.lean, 0xf2e35c);
     this.world.headlight = fresh.headlight;
   }
 
@@ -591,9 +603,11 @@ export class Engine {
   constructor(public canvas: HTMLCanvasElement) {
     this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || "ontouchstart" in window;
     this.quality = this.isMobile ? "low" : "high";
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile });
+    // Stencil is needed for the see-through rider (off by default since three r163).
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile, stencil: true });
+    this.graphics = readGraphics(this.isMobile);
     // Full retina (2x) quadruples shaded pixels for little visible gain at speed.
-    this.pixelRatio = Math.min(window.devicePixelRatio, this.isMobile ? 1.25 : 1.5);
+    this.pixelRatio = this.basePixelRatio();
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -614,10 +628,12 @@ export class Engine {
     this.world.pickupMarker.scale.setScalar(.48);this.world.dropMarker.scale.setScalar(.48);
     this.rig = buildRider();
     this.scene.add(this.rig.group);
+    this.riderGhost = addSilhouette(this.rig.lean, 0xf2e35c);
     this.footRider.group.visible = false;
     this.footRider.head.add(buildHelmet(0xf2e35c));
     this.footRider.armR.hand.add(this.carriedBag);
     this.scene.add(this.footRider.group);
+    this.footGhost = addSilhouette(this.footRider.group, 0xf2e35c);
     restoreProgress();
     // attach world headlight to rig
     this.world.headlight = this.rig.headlight;
@@ -634,6 +650,9 @@ export class Engine {
       this.scene.add(m);
       this.chevrons.push(m);
     }
+    this.ink = this.graphics === "high" ? new InkPass(this.isMobile ? 0 : 4) : null;
+    if (this.graphics === "low") { this.world.sun.shadow.mapSize.set(1024, 1024); }
+    useGame.getState().set({ graphics: this.graphics });
     this.resize();
     window.addEventListener("resize", this.resize);
     this.bindKeys();
@@ -726,7 +745,31 @@ export class Engine {
     this.camera.updateProjectionMatrix();
     const px = h * this.renderer.getPixelRatio();
     this.puffs?.setViewport(px); this.sparkField?.setViewport(px); this.glows.setViewport(px);
+    this.ink?.setSize(w * this.renderer.getPixelRatio(), px);
   };
+
+  /** High: ink outlines, 1.5x render scale. Low: plain render at 1x — for older or hot machines. */
+  setGraphics(quality: Graphics) {
+    this.graphics = quality;
+    try { localStorage.setItem(GRAPHICS_KEY, quality); } catch { /* storage may be unavailable */ }
+    this.ink?.dispose();
+    this.ink = quality === "high" ? new InkPass(this.isMobile ? 0 : 4) : null;
+    this.pixelRatio = this.basePixelRatio();
+    this.renderer.setPixelRatio(this.pixelRatio);
+    const shadow = quality === "high" && !this.isMobile ? 2048 : 1024;
+    const sun = this.world.sun;
+    if (sun.shadow.mapSize.x !== shadow) {
+      sun.shadow.mapSize.set(shadow, shadow);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    }
+    this.resize();
+    useGame.getState().set({ graphics: quality });
+  }
+
+  private basePixelRatio() {
+    return Math.min(window.devicePixelRatio, this.graphics === "high" ? (this.isMobile ? 1.25 : 1.5) : 1);
+  }
 
   private _onKeyDown = (e: KeyboardEvent) => {
     // Typing a name in a form must not ride the bike.
@@ -2103,6 +2146,11 @@ export class Engine {
       for(const place of [this.vendorPlace,this.customerPlace,this.basePlace])if(place?.visible)obstacles.push(place);
       const hit=this.cameraRay.intersectObjects(obstacles,true).find(h=>h.object instanceof THREE.Mesh);
       this.cameraClearance=hit?Math.max(.8,hit.distance-.4):20;
+      // See-through rider only while something actually stands in the way.
+      const blockers:THREE.Object3D[]=[...obstacles,...this.roadEvents.objects()];
+      for(const c of this.osmPlay?.trafficBodies()??[])if(c.mesh.visible&&c.mesh.position.distanceTo(this.camera.position)<desiredDistance+4)blockers.push(c.mesh);
+      const hidden=this.cameraRay.intersectObjects(blockers,true).some(h=>h.object instanceof THREE.Mesh&&h.object.name!=="rider-ghost");
+      this.riderGhost?.setVisible(hidden);this.footGhost?.setVisible(hidden);
     }
     if(this.cameraClearance<desiredDistance){
       this.camera.position.copy(this.cameraAnchor).addScaledVector(this.cameraDirection,this.cameraClearance);
@@ -2121,6 +2169,10 @@ export class Engine {
   }
 
   private pixelRatio = 1;
+  graphics: Graphics = "high";
+  private ink: InkPass | null = null;
+  private riderGhost: ReturnType<typeof addSilhouette> | null = null;
+  private footGhost: ReturnType<typeof addSilhouette> | null = null;
   private lastFrameAt = 0;
   private frameCount = 0;
   private slowFrames = 0;
@@ -2141,7 +2193,8 @@ export class Engine {
     // Moving sun shadows only need refreshing every other frame.
     this.frameCount++;
     this.renderer.shadowMap.needsUpdate = this.frameCount % 2 === 0;
-    this.renderer.render(this.scene, this.camera);
+    if (this.ink) this.ink.render(this.renderer, this.scene, this.camera);
+    else this.renderer.render(this.scene, this.camera);
     if (!idle) this.adaptQuality(now, dt);
   };
 
@@ -2189,6 +2242,9 @@ export class Engine {
     this.beacon.dispose();
     disposeTextureCache();
     for (const fx of [this.puffs, this.sparkField, this.glows, this.streaks]) fx.dispose();
+    this.ink?.dispose();
+    this.riderGhost?.dispose();
+    this.footGhost?.dispose();
     this.roadEvents.clear();
     this.clearNPCs();
     if (this.targetLabel) {

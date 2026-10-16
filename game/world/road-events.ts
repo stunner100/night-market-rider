@@ -354,6 +354,12 @@ export class RoadEvents {
     return a ? [{ pos: a.getWorldPosition(new THREE.Vector3()), color: redOn ? 0xff2020 : 0x2a6bff }] : [];
   }
 
+  /** Meshes that can hide the rider from the camera. */
+  objects(): THREE.Object3D[] {
+    if (this.procession?.group.visible) return [this.procession.group];
+    return this.ambulance ? [this.ambulance] : [];
+  }
+
   /** Distance from a point to the event, for audio levels. */
   distanceTo(x: number, z: number) {
     const p = this.procession ? this.procession.coffin.position : this.ambulance?.position;

@@ -770,6 +770,14 @@ export default function UI({
             <p className="eyebrow">REST SMALL</p>
             <h2>Shift dey pause</h2>
             <ShiftGoalsList />
+            <div className="graphics-toggle" role="group" aria-label="Graphics quality">
+              <span>GRAPHICS</span>
+              {(["high", "low"] as const).map((q) => (
+                <button key={q} type="button" aria-pressed={s.graphics === q} onClick={() => eng?.setGraphics(q)}>
+                  {q === "high" ? "High · outlines" : "Low · cooler"}
+                </button>
+              ))}
+            </div>
             <button
               className="btn btn-primary"
               onClick={() => eng?.resumeGame()}
